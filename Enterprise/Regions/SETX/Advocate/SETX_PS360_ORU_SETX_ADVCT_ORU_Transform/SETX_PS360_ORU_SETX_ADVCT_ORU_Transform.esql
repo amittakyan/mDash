@@ -1,0 +1,80 @@
+
+
+CREATE COMPUTE MODULE SETX_PS360_ORU_SETX_ADVCT_ORU_Transform
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN
+        DECLARE hl7 NAMESPACE 'urn:hl7-org:v2xml';
+        
+		
+		CALL CopyMessageHeaders();
+		-- CALL CopyEntireMessage();
+		DECLARE LOCATION, DICTATING_DOC,SEQNO,DATETIME,REASON CHAR;
+		SET Environment.MsgID = InputRoot.MQRFH2.usr.uniqueMessageId;
+		
+		SET OutputRoot.DFDL.hl7:HL7.hl7:MSH = InputRoot.DFDL.hl7:HL7.hl7:MSH;
+		set SEQNO=InputRoot.DFDL.hl7:HL7.hl7:MSH.hl7:"MSH.13.SequenceNumber";
+		SET DATETIME=InputRoot.DFDL.hl7:HL7.hl7:MSH.hl7:"MSH.7.DateTimeOfMessage";
+		DECLARE outanyHL7Segment REFERENCE TO OutputRoot.DFDL.hl7:HL7;
+		DECLARE newSegment REFERENCE TO OutputRoot.DFDL.hl7:HL7;
+		
+		DECLARE ref_anyHL7Segment REFERENCE TO InputRoot.DFDL.hl7:HL7.hl7:anyHL7Segment;
+		DECLARE PV1_REF REFERENCE TO InputRoot.DFDL.hl7:HL7.hl7:anyHL7Segment;
+		DECLARE OBR_REF REFERENCE TO InputRoot.DFDL.hl7:HL7.hl7:anyHL7Segment;
+		WHILE(LASTMOVE(ref_anyHL7Segment)) DO
+			CREATE LASTCHILD OF outanyHL7Segment AS newSegment FROM ref_anyHL7Segment;
+			
+			
+			CASE FIELDNAME(ref_anyHL7Segment.[1])
+			WHEN 'PV1' THEN
+			SET LOCATION=ref_anyHL7Segment.hl7:PV1.hl7:"PV1.3.AssignedPatientLocation".hl7:"PL.7".hl7:"HD.1";
+		
+			WHEN 'OBR' THEN
+			SET DICTATING_DOC=ref_anyHL7Segment.hl7:OBR.hl7:"OBR.32.PrincipalResultInterpreter".hl7:"NDL.1".hl7:"CNN.1";			
+			If LENGTH(DICTATING_DOC)>0 then
+				begin
+					DECLARE CONTINUE HANDLER FOR SQLSTATE LIKE'%' BEGIN END;
+					call CommonHCP.Routines.ESQL.GetUserDefinedConfigurableServiceProperty( 'Advocate_ORU_Provider', DICTATING_DOC)INTO Environment.ADVOCATE.DICTATING_DOC;
+					IF Environment.ADVOCATE.DICTATING_DOC='true' Then
+						set Environment.ADVOCATE.DICTATING_DOC=null;
+					else
+						SET REASON='NOT IN THE PROVIDER LIST';
+						RETURN ExcludeMessage(REASON);
+						RETURN FALSE;
+					END IF;
+				end;
+			Else
+				RETURN FALSE;
+			end if;
+			
+			
+			END CASE;
+			
+			MOVE ref_anyHL7Segment NEXTSIBLING;
+		END WHILE;
+		
+		SET OutputRoot.MQRFH2.usr.Name=LOCATION||'_'||COALESCE(DATETIME,'0000000000000')||'_'||COALESCE(SEQNO,'000000')||'.TXT';
+		
+		RETURN TRUE;
+	END;
+
+	CREATE FUNCTION ExcludeMessage (IN Reason CHARACTER ) RETURNS BOOLEAN
+	BEGIN
+		SET Environment.ExcludeReason = Reason;
+		PROPAGATE TO TERMINAL 'out1' DELETE NONE;
+		RETURN FALSE;
+	END;
+	
+	CREATE PROCEDURE CopyMessageHeaders() BEGIN
+		DECLARE I INTEGER 1;
+		DECLARE J INTEGER;
+		SET J = CARDINALITY(InputRoot.*[]);
+		WHILE I < J DO
+			SET OutputRoot.*[I] = InputRoot.*[I];
+			SET I = I + 1;
+		END WHILE;
+	END;
+
+	CREATE PROCEDURE CopyEntireMessage() BEGIN
+		SET OutputRoot = InputRoot;
+	END;
+END MODULE;

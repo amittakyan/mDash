@@ -1,0 +1,5 @@
+runmqsc ENT_DEV_01 < /opt/mqm/bar/ENT_PS360_ORU_ENT_MTITS_ORU_Transform/CreateTransformQueues.mqsc
+
+
+
+

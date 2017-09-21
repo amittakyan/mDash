@@ -1,0 +1,10 @@
+******************************
+*
+* runmqsc QIIBMQ01 (or appropriate QueueManager) from IBM Intgration Console and copy and paste this script into it
+*
+* Type end to exit
+*
+******************************
+DEFINE QLOCAL('SRH.ATHMTDB.ADT.QL') MAXDEPTH(999999999) BOTHRESH(999999999) REPLACE
+DEFINE QLOCAL('ENT.MTADM.ADT.SRH.ATHMTDB.ADT.XFRM.QL') MAXDEPTH(999999999) BOTHRESH(999999999) REPLACE
+DEFINE SUB ('ENT.MTADM.ADT.SRH.ATHMTDB.ADT.SL') DEST ('ENT.MTADM.ADT.SRH.ATHMTDB.ADT.XFRM.QL') TOPICSTR('SRH.MTADM.ADT.RECV.TL') REPLACE

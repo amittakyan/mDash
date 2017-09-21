@@ -1,0 +1,5 @@
+runmqsc ENT_DEV_01 < /opt/mqm/bar/ENT_ATH_ADT_Sender/CreateSenderQueues.mqsc
+
+
+
+

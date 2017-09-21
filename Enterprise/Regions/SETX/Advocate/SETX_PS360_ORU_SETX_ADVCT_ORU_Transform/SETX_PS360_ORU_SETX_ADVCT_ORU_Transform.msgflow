@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ecore:EPackage xmi:version="2.0"
+    xmlns:xmi="http://www.omg.org/XMI" xmlns:ComIbmCompute.msgnode="ComIbmCompute.msgnode" xmlns:ComIbmMQInput.msgnode="ComIbmMQInput.msgnode" xmlns:ComIbmMQOutput.msgnode="ComIbmMQOutput.msgnode" xmlns:ComIbmPassthru.msgnode="ComIbmPassthru.msgnode" xmlns:ErrorHandling_Subflows_TransformErrorHandling.msgflow="ErrorHandling/Subflows/TransformErrorHandling.msgflow" xmlns:ecore="http://www.eclipse.org/emf/2002/Ecore" xmlns:eflow="http://www.ibm.com/wbi/2005/eflow" xmlns:mbmonitor="http://www.ibm.com/wbi/2008/eflow_mbmonitor"
+    xmlns:utility="http://www.ibm.com/wbi/2005/eflow_utility" nsURI="SETX_PS360_ORU_SETX_ADVCT_ORU_Transform.msgflow"
+    nsPrefix="SETX_PS360_ORU_SETX_ADVCT_ORU_Transform.msgflow">
+  <eClassifiers xmi:type="eflow:FCMComposite" name="FCMComposite_1">
+    <eSuperTypes href="http://www.ibm.com/wbi/2005/eflow#//FCMBlock"/>
+    <translation xmi:type="utility:TranslatableString" key="SETX_PS360_ORU_SETX_ADVCT_ORU_Transform" bundleName="SETX_PS360_ORU_SETX_ADVCT_ORU_Transform" pluginId="SETX_PS360_ORU_SETX_ADVCT_ORU_Transform"/>
+    <colorGraphic16 xmi:type="utility:GIFFileGraphic" resourceName="platform:/plugin/SETX_PS360_ORU_SETX_ADVCT_ORU_Transform/icons/full/obj16/SETX_PS360_ORU_SETX_ADVCT_ORU_Transform.gif"/>
+    <colorGraphic32 xmi:type="utility:GIFFileGraphic" resourceName="platform:/plugin/SETX_PS360_ORU_SETX_ADVCT_ORU_Transform/icons/full/obj30/SETX_PS360_ORU_SETX_ADVCT_ORU_Transform.gif"/>
+    <composition>
+      <nodes xmi:type="ComIbmMQInput.msgnode:FCMComposite_1" xmi:id="FCMComposite_1_1" location="3,123" queueName="SETX.PS360.ORU.SETX.ADVCT.ORU.XFRM.QL">
+        <translation xmi:type="utility:ConstantString" string="SETX.PS360.ORU.SETX.ADVCT.ORU.XFRM.QL"/>
+        <monitorEvents eventSourceDescription="Transaction start" eventSourceName="SETX.PS360.ORU.SETX.ADVCT.ORU.XFRM.QL.transaction.Start" eventIdentity="Transaction Start">
+          <eventXMLDoc xmi:type="mbmonitor:MonitorEvent" eventUOW="none">
+            <globalTransactionCorrelator/>
+            <parentTransactionCorrelator/>
+            <localTransactionCorrelator dataLocation="$Root/MQRFH2/usr/uniqueMessageId" eventCorrelation="dataLocation"/>
+            <bitStreamData encoding="base64Binary"/>
+            <eventName literal="Transaction Start"/>
+            <eventFilter dataLocation="true()" isXPath="true"/>
+          </eventXMLDoc>
+        </monitorEvents>
+        <monitorEvents eventSourceDescription="Transaction end" eventSourceName="SETX.PS360.ORU.SETX.ADVCT.ORU.XFRM.QL.transaction.End" eventIdentity="Transaction End">
+          <eventXMLDoc xmi:type="mbmonitor:MonitorEvent" eventUOW="none">
+            <globalTransactionCorrelator/>
+            <parentTransactionCorrelator/>
+            <localTransactionCorrelator dataLocation="$Root/MQRFH2/usr/uniqueMessageId" eventCorrelation="dataLocation"/>
+            <bitStreamData encoding="none" bitstreamContent="none"/>
+            <eventName literal="Transaction End"/>
+            <eventFilter dataLocation="true()" isXPath="true"/>
+          </eventXMLDoc>
+        </monitorEvents>
+      </nodes>
+      <nodes xmi:type="ComIbmMQOutput.msgnode:FCMComposite_1" xmi:id="FCMComposite_1_2" location="642,122" queueName="SETX.ADVCT.ORU.QL">
+        <translation xmi:type="utility:ConstantString" string="SETX.ADVCT.ORU.QL"/>
+      </nodes>
+      <nodes xmi:type="ComIbmCompute.msgnode:FCMComposite_1" xmi:id="FCMComposite_1_3" location="431,117" computeExpression="esql://routine/#SETX_PS360_ORU_SETX_ADVCT_ORU_Transform.Main">
+        <translation xmi:type="utility:ConstantString" string="Transform"/>
+      </nodes>
+      <nodes xmi:type="ErrorHandling_Subflows_TransformErrorHandling.msgflow:FCMComposite_1" xmi:id="FCMComposite_1_4" location="355,34">
+        <translation xmi:type="utility:ConstantString" string="TransformErrorHandling"/>
+      </nodes>
+      <nodes xmi:type="ComIbmPassthru.msgnode:FCMComposite_1" xmi:id="FCMComposite_1_5" location="729,32">
+        <translation xmi:type="utility:ConstantString" string="Discard"/>
+        <monitorEvents eventSourceDescription="In terminal" eventSourceName="Discard.terminal.in" eventIdentity="$Environment/ExcludeReason">
+          <eventXMLDoc xmi:type="mbmonitor:MonitorEvent" eventUOW="none">
+            <globalTransactionCorrelator/>
+            <parentTransactionCorrelator/>
+            <localTransactionCorrelator dataLocation="$Environment/MsgID" eventCorrelation="dataLocation"/>
+            <bitStreamData encoding="none" bitstreamContent="none"/>
+            <eventName dataLocation="$Environment/ExcludeReason" isXPath="true"/>
+            <eventFilter dataLocation="true()" isXPath="true"/>
+          </eventXMLDoc>
+        </monitorEvents>
+      </nodes>
+      <connections xmi:type="eflow:FCMConnection" xmi:id="FCMConnection_1" targetNode="FCMComposite_1_3" sourceNode="FCMComposite_1_1" sourceTerminalName="OutTerminal.out" targetTerminalName="InTerminal.in"/>
+      <connections xmi:type="eflow:FCMConnection" xmi:id="FCMConnection_2" targetNode="FCMComposite_1_2" sourceNode="FCMComposite_1_3" sourceTerminalName="OutTerminal.out" targetTerminalName="InTerminal.in"/>
+      <connections xmi:type="eflow:FCMConnection" xmi:id="FCMConnection_3" targetNode="FCMComposite_1_4" sourceNode="FCMComposite_1_1" sourceTerminalName="OutTerminal.failure" targetTerminalName="InTerminal.Input"/>
+      <connections xmi:type="eflow:FCMConnection" xmi:id="FCMConnection_4" targetNode="FCMComposite_1_4" sourceNode="FCMComposite_1_1" sourceTerminalName="OutTerminal.catch" targetTerminalName="InTerminal.Input"/>
+      <connections xmi:type="eflow:FCMConnection" xmi:id="FCMConnection_5" targetNode="FCMComposite_1_5" sourceNode="FCMComposite_1_3" sourceTerminalName="OutTerminal.out1" targetTerminalName="InTerminal.in"/>
+    </composition>
+    <propertyOrganizer/>
+    <stickyBoard/>
+  </eClassifiers>
+</ecore:EPackage>

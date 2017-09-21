@@ -1,0 +1,9 @@
+******************************
+*
+* runmqsc TIIBMQ01 (or appropriate QueueManager) from IBM Intgration Console and copy and paste this script into it
+*
+* Type end to exit
+*
+******************************
+DEFINE TOPIC ('ENT.PS360.ORU.RECV.TL') TOPICSTR(ENT.PS360.ORU.RECV.TL) REPLACE
+DEFINE QALIAS('ENT.PS360.ORU.RECV.QA') TARGET(ENT.PS360.ORU.RECV.TL) TARGTYPE(TOPIC) REPLACE

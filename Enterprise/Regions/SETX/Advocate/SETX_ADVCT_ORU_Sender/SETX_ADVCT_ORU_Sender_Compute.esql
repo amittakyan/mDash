@@ -1,0 +1,71 @@
+
+
+CREATE COMPUTE MODULE SETX_ADVCT_ORU_Sender_Compute
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN
+		CALL CopyMessageHeaders();
+		DECLARE iMessageNumber INTEGER 0;
+		DECLARE cMessageText CHARACTER ' ';
+		DECLARE cNodeLabel CHARACTER '';
+		 
+		CALL CommonHCP.Routines.ESQL.GetLastExceptionDetail(InputExceptionList, iMessageNumber, cMessageText, cNodeLabel);
+		SET cMessageText = LOWER(cMessageText);
+		
+		DECLARE cQMgrName CHARACTER TRIM(QueueManagerName);
+		DECLARE cQName CHARACTER TRIM(InputRoot.MQMD.SourceQueue);
+				
+				set OutputRoot.XMLNSC=null;
+				SET OutputRoot.XMLNSC.COMMON.ERROR.ERROR_TYPE = 'Failure';
+				SET OutputRoot.XMLNSC.COMMON.ERROR.ERROR_STATUS = 'Error';
+				SET OutputRoot.XMLNSC.COMMON.ERROR.ERROR_NUMBER = iMessageNumber;
+				SET OutputRoot.XMLNSC.COMMON.ERROR.ERROR_MESSAGE = cMessageText;
+				SET OutputRoot.XMLNSC.COMMON.ERROR.ORIGINAL_PAYLOAD =InputRoot.BLOB.BLOB;
+				SET OutputRoot.XMLNSC.COMMON.ERROR.BROKER_NAME = BrokerName;
+				SET OutputRoot.XMLNSC.COMMON.ERROR.EXECUTION_GROUP_NAME = ExecutionGroupLabel;
+				SET OutputRoot.XMLNSC.COMMON.ERROR.APPLICATION_NAME = ApplicationLabel;
+				SET OutputRoot.XMLNSC.COMMON.ERROR.FLOW_NAME = MessageFlowLabel;
+				SET OutputRoot.XMLNSC.COMMON.ERROR.NODE_LABEL = COALESCE(cNodeLabel, NodeLabel);
+				SET OutputRoot.XMLNSC.COMMON.ERROR.CREATE_TIME = CAST(COALESCE(Environment.Variable.StartTime, CURRENT_TIMESTAMP) AS CHARACTER FORMAT 'yyyy-MM-dd-HH.mm.ss.SSSSSS');
+				SET OutputRoot.XMLNSC.COMMON.ERROR.UPDATE_TIME = CAST(CURRENT_TIMESTAMP AS CHARACTER FORMAT 'yyyy-MM-dd-HH.mm.ss.SSSSSS');
+				SET OutputRoot.XMLNSC.COMMON.ERROR.PAYLOAD = InputRoot.BLOB.BLOB;
+				SET OutputRoot.XMLNSC.COMMON.ERROR.MSG_ID = COALESCE(Environment.MsgID, InputRoot.MQRFH2.usr.uniqueMessageId);
+				SET OutputRoot.XMLNSC.COMMON.ERROR.QUEUE_NAME = cQName;
+				SET OutputRoot.XMLNSC.COMMON.ERROR.QMGR_NAME = cQMgrName;
+				SET OutputRoot.XMLNSC.COMMON.ERROR.SEND_EMAIL= 'YES';
+				CALL CommonHCP.Routines.ESQL.GetLastExceptionExpandedDetail(InputExceptionList, iMessageNumber, cMessageText, cNodeLabel);
+				SET OutputRoot.XMLNSC.COMMON.ERROR.EXCEPTION_TREE=cMessageText;
+				IF cQMgrName IS NOT NULL THEN
+					CALL CommonHCP.Routines.ESQL.DisableQueue(cQMgrName, cQName) INTO Environment.Variables.QueueDisable;
+					IF STARTSWITH(TRIM(Environment.Variables.QueueDisable), 'SUCCESS:') THEN
+						SET Environment.Variables.Throw = 'YES';
+					ELSE
+					-- Try Queue Inihibit 1 more time after 30 seconds
+						IF SLEEP(30000) THEN
+							CALL CommonHCP.Routines.ESQL.DisableQueue(cQMgrName, cQName) INTO Environment.Variables.QueueDisable;
+							IF STARTSWITH(TRIM(Environment.Variables.QueueDisable), 'SUCCESS:') THEN
+							SET Environment.Variables.Throw = 'YES';
+							END IF;
+						END IF;
+					END IF;
+				END IF;
+				SET OutputRoot.XMLNSC.COMMON.ERROR.QUEUE_DISABLE = COALESCE(Environment.Variables.QueueDisable, 'NO');
+				propagate to terminal 'out' delete none;
+				THROW USER EXCEPTION MESSAGE 2951 VALUES('Fail to Send the file');
+				
+		RETURN false;
+	END;
+
+	CREATE PROCEDURE CopyMessageHeaders() BEGIN
+		DECLARE I INTEGER 1;
+		DECLARE J INTEGER;
+		SET J = CARDINALITY(InputRoot.*[]);
+		WHILE I < J DO
+			SET OutputRoot.*[I] = InputRoot.*[I];
+			SET I = I + 1;
+		END WHILE;
+	END;
+
+	CREATE PROCEDURE CopyEntireMessage() BEGIN
+		SET OutputRoot = InputRoot;
+	END;
+END MODULE;

@@ -1,0 +1,392 @@
+
+
+/* ----------------------------------------------------------------------
+* Module Name : SPN_MTPACS_ORM_SPN_VRAD_ORM_Transform
+* Author Name : Sri Krishnakanth Sanka (MSS)
+* Date : 12th May, 2016
+* Version : Initial Version
+* Description : Module to transform Meditech PACS ORM to VRAD ORM message
+------------------------------------------------------------------------*/
+
+DECLARE CACHETABLE SHARED ROW;
+DECLARE gOBR3 SHARED CHARACTER; --*** Declare Global Variable
+
+CREATE COMPUTE MODULE SPN_MTPACS_ORM_SPN_VRAD_ORM_Transform
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN
+		DECLARE hl7 NAMESPACE 'urn:hl7-org:v2xml';
+		DECLARE env REFERENCE TO Environment.Variables;
+		
+		DECLARE TEMPCACHE ROW; --Used for loading ESQL cache
+		SET CACHETABLE = NULL;
+		
+
+		
+		CALL CopyMessageHeaders();
+		-- CALL CopyEntireMessage();
+		-- To Generate the Unique Message Id
+		SET Environment.MsgID = InputRoot.MQRFH2.usr.uniqueMessageId;
+		SET OutputRoot.DFDL.hl7:HL7.hl7:MSH = InputRoot.DFDL.hl7:HL7.hl7:MSH;
+		-- Store for later use
+		
+		SET env.MSH4 = InputRoot.DFDL.hl7:HL7.hl7:MSH.hl7:"MSH.4.SendingFacility".hl7:"HD.1";
+		SET env."MSH9.1" = InputRoot.DFDL.hl7:HL7.hl7:MSH.hl7:"MSH.9.MessageType".hl7:"MSG.1";
+		SET env."MSH9.2" = InputRoot.DFDL.hl7:HL7.hl7:MSH.hl7:"MSH.9.MessageType".hl7:"MSG.2";
+
+		IF InputRoot.DFDL.hl7:HL7.hl7:MSH.hl7:"MSH.6.ReceivingFacility".hl7:"HD.1" = 'SKM' THEN
+			-- Do nothing Continue the transactions
+
+		ELSEIF InputRoot.DFDL.hl7:HL7.hl7:MSH.hl7:"MSH.6.ReceivingFacility".hl7:"HD.1" = 'SST' THEN
+			-- Store it for later use
+			SET env."MSH6Flag.2" = 'TRUE';
+
+		ELSE
+			-- Store it for later use
+			SET env."MSH6Flag.3" = 'TRUE';
+		END IF;
+		
+
+		DECLARE outanyHL7Segment REFERENCE TO OutputRoot.DFDL.hl7:HL7;
+		DECLARE newSegment REFERENCE TO OutputRoot.DFDL.hl7:HL7;
+
+		DECLARE ref_anyHL7Segment REFERENCE TO InputRoot.DFDL.hl7:HL7.hl7:anyHL7Segment;
+
+		WHILE(LASTMOVE(ref_anyHL7Segment)) DO
+		CREATE LASTCHILD OF outanyHL7Segment AS newSegment FROM ref_anyHL7Segment;
+
+
+		CASE FIELDNAME(ref_anyHL7Segment.[1])
+
+		WHEN 'PID' THEN
+			CALL CommonHCP.Routines.ESQL.emrIdConversionNew(newSegment,'SPN');
+			SET env."PID.18" = LEFT(newSegment.hl7:PID.hl7:"PID.18.PatientAccountNumber".hl7:"CX.1",2);
+
+		WHEN 'PV1' THEN
+				
+			-- Take PV1-39 and translate using Pacs_Facility table
+			SET env."PV1.39" = newSegment.hl7:PV1.hl7:"PV1.39.ServicingFacility".hl7:"CWE.1";
+			-- Perform table lookup with env."PV1.39" and place the resultant value in PACSFacility
+			IF (EXISTS(CACHETABLE.PACS_ORDER_SITES[])) THEN
+				--If Shared row for PACS_ORDER_SITES is already populated, do not execute DB Select Query
+			ELSE
+				SET TEMPCACHE.PACS_ORDER_SITES[] = PASSTHRU('SELECT * FROM dbo.PACS_ORDER_SITES');
+				--Store in ESQL Cache
+				FOR cacheLine AS TEMPCACHE.PACS_ORDER_SITES[] DO
+					CREATE LASTCHILD OF CACHETABLE.PACS_ORDER_SITES
+					NAME cacheLine.IN VALUE cacheLine.OUT;
+				END FOR;
+				--Clear TempCache
+				SET TEMPCACHE = NULL;
+			END IF;
+			IF (env."PV1.39" IS NOT NULL) THEN
+				SET env."PV1.39" = CACHETABLE.PACS_ORDER_SITES.{env."PV1.39"};
+			END IF;
+			CALL CommonHCP.Routines.ESQL.SetValue(OutputRoot.DFDL.hl7:HL7.hl7:MSH,'MSH.4.SendingFacility\HD.1', env."PV1.39");
+			
+			--Trim PV1-18 to 2 characters
+			IF (newSegment.hl7:PV1.hl7:"PV1.18.PatientType".hl7:"CWE.1" IS NOT NULL) THEN
+				SET newSegment.hl7:PV1.hl7:"PV1.18.PatientType".hl7:"CWE.1" = LEFT(newSegment.hl7:PV1.hl7:"PV1.18.PatientType".hl7:"CWE.1",2);
+			END IF;
+			--Trim Pv1-36 to 3 characters
+			IF(newSegment.hl7:PV1.hl7:"PV1.36.DischargeDisposition".hl7:"CWE.1" IS NOT NULL) THEN
+				SET newSegment.hl7:PV1.hl7:"PV1.36.DischargeDisposition".hl7:"CWE.1" = LEFT(newSegment.hl7:PV1.hl7:"PV1.36.DischargeDisposition".hl7:"CWE.1", 3); 
+			END IF;
+			
+
+		WHEN 'AL1' THEN
+			
+			-- set AL1-2.4 to NULL
+			SET newSegment.hl7:AL1.hl7:"AL1.2.AllergenTypeCode".hl7:"CWE.4" = NULL;
+			-- Trimming AL1.3 segments to 60 start
+			IF (newSegment.hl7:AL1.hl7:"AL1.3.AllergenCodeMnemonicDescription".hl7:"CWE.1" IS NOT NULL)THEN
+				DECLARE "AL1.3_COUNT" INTEGER ;
+				DECLARE "AL1.3_INDEX" INTEGER 1;
+				DECLARE "AL1.3_SET" CHARACTER '';
+				DECLARE "AL1.3_LAST_FIELD_NAME" CHARACTER '';
+
+				DECLARE "AL1.3_SUBFIELDS_COUNT" INTEGER;
+				SET "AL1.3_SUBFIELDS_COUNT" = CARDINALITY(newSegment.hl7:AL1.hl7:"AL1.3.AllergenCodeMnemonicDescription".*[]);
+				SET "AL1.3_LAST_FIELD_NAME" = FIELDNAME(newSegment.hl7:AL1.hl7:"AL1.3.AllergenCodeMnemonicDescription".["AL1.3_SUBFIELDS_COUNT"]);
+				--SET "AL1.3_COUNT" = RIGHT("AL1.3_LAST_FIELD_NAME",1);
+				SET "AL1.3_COUNT" = SUBSTRING("AL1.3_LAST_FIELD_NAME" AFTER '.');
+
+				WHILE ("AL1.3_INDEX" <= "AL1.3_COUNT")DO
+					SET "AL1.3_SET" = 'CWE.'||CAST("AL1.3_INDEX" AS CHARACTER);
+					IF(newSegment.hl7:AL1.hl7:"AL1.3.AllergenCodeMnemonicDescription".hl7:{"AL1.3_SET"} IS NULL) THEN
+					CALL CommonHCP.Routines.ESQL.SetValue(newSegment,'AL1\AL1.3.AllergenCodeMnemonicDescription\'||"AL1.3_SET",'');
+				END IF;
+				SET "AL1.3_INDEX" = "AL1.3_INDEX" + 1;
+			END WHILE;
+
+			DECLARE myout CHARACTER;
+			CALL procAppendSubChars(newSegment.hl7:AL1.hl7:"AL1.3.AllergenCodeMnemonicDescription", Environment, myout);
+			SET env."Al1.3" = LEFT(myout,60);
+			IF (ENDSWITH(env."Al1.3", '^')) THEN
+				SET env."Al1.3" = TRIM(TRAILING '^' FROM env."Al1.3");
+			END IF;
+
+			IF newSegment.hl7:AL1.hl7:"AL1.4.AllergySeverityCode".hl7:"CWE.1" IS NULL THEN
+				CREATE NEXTSIBLING OF newSegment.hl7:AL1.hl7:"AL1.3.AllergenCodeMnemonicDescription" TYPE Name NAMESPACE hl7 NAME 'AL1.4.AllergySeverityCode';
+				CALL CommonHCP.Routines.ESQL.SetValue(newSegment,'AL1\AL1.4.AllergySeverityCode\CWE.1','');
+			END IF;
+			CALL CommonHCP.Routines.ESQL.procClearFieldsInSet(newSegment,'3');
+			CALL CommonHCP.Routines.ESQL.SetValue(newSegment,'AL1\AL1.3.AllergenCodeMnemonicDescription\CWE.1',env."Al1.3");
+		END IF;
+		-- Trimming AL1.3 segments to 60 END
+		-- Truncate AL1-5 to 15 characters
+		IF (newSegment.hl7:AL1.hl7:"AL1.5.AllergyReactionCode" IS NOT NULL) THEN
+			SET newSegment.hl7:AL1.hl7:"AL1.5.AllergyReactionCode" = LEFT(newSegment.hl7:AL1.hl7:"AL1.5.AllergyReactionCode",15);
+		END IF;
+
+	WHEN 'ORC' THEN
+	
+
+		-- Store ORC1 value for later use
+		SET env.ORC1 = newSegment.hl7:ORC.hl7:"ORC.1.OrderControl";
+
+		SET env."ORC.18" = newSegment.hl7:ORC.hl7:"ORC.18.EnteringDevice".hl7:"CWE.1";
+		-- PACS_ORDER_SITES table lookup
+		IF (EXISTS(CACHETABLE.PACS_ORDER_SITES[])) THEN
+			--If Shared row for PACS_ORDER_SITES is already populated, do not execute DB Select Query
+		ELSE
+			SET TEMPCACHE.PACS_ORDER_SITES[] = PASSTHRU('SELECT * FROM "PACS_ORDER_SITES"');
+			--Store in ESQL Cache
+			FOR cacheLine AS TEMPCACHE.PACS_ORDER_SITES[] DO
+				CREATE LASTCHILD OF CACHETABLE.PACS_ORDER_SITES
+				NAME cacheLine.IN VALUE cacheLine.OUT;
+			END FOR;
+			--Clear TempCache
+			SET TEMPCACHE = NULL;
+		END IF;
+
+		IF env."ORC.18" IS NOT NULL THEN
+			SET env.PACS_ORDER_SITES = CACHETABLE.PACS_ORDER_SITES.{env."ORC.18"};
+		END IF;
+
+
+
+		IF (env.PACS_ORDER_SITES IS NOT NULL) THEN
+			CALL CommonHCP.Routines.ESQL.SetValue(newSegment,'ORC\ORC.18.EnteringDevice\CWE.1',env.PACS_ORDER_SITES); -- place table lookup value of PACS_ORDER_SITES table in ORC.18
+		END IF;
+		IF env."ORC.18" = 'SSH.PAV' THEN
+			--IF ORC:18 is "SSH.PAV" map “SSH” to ORC.18
+			CALL CommonHCP.Routines.ESQL.SetValue(newSegment,'ORC\ORC.18.EnteringDevice\CWE.1','SSH');
+		END IF;
+		--IF ORC:18 is “RCH” or “CCF.RAD”, map “RCH” to ORC:20
+		IF env."ORC.18" = 'RCH' OR env."ORC.18" = 'CCF.RAD' THEN
+			CALL CommonHCP.Routines.ESQL.SetValue(newSegment, 'ORC\ORC.20.AdvancedBeneficiaryNoticeCode\CWE.1','RCH');
+		ELSE
+			-- IF ORC:18 is “AMNBC”, map “B” to ORC:20
+			IF env."ORC.18" = 'AMNBC' THEN
+				CALL CommonHCP.Routines.ESQL.SetValue(newSegment, 'ORC\ORC.20.AdvancedBeneficiaryNoticeCode\CWE.1','B');
+			END IF;
+		END IF;
+
+		
+	WHEN 'OBR' THEN
+		
+
+		SET env."OBR4.1" = newSegment.hl7:OBR.hl7:"OBR.4.UniversalServiceIdentifier".hl7:"CWE.1";
+		SET env."OBR4.2" = newSegment.hl7:OBR.hl7:"OBR.4.UniversalServiceIdentifier".hl7:"CWE.2";
+
+		IF env."MSH6Flag.2" = 'TRUE' THEN
+			IF env."OBR4.1" = 'MAM' THEN
+				IF NOT env."OBR4.2" = 'MAMBST1LES' OR env."OBR4.2" = 'STELO' THEN
+					--Kill the transcations
+					RETURN ExcludeMessage('MSH6=SST,OBR4.1=MAM & OBR4.2<>MAMBST1LES\STELO');
+				END IF;
+			END IF;
+		END IF;
+		IF env."MSH6Flag.3" = 'TRUE' THEN
+			IF env."OBR4.1" = 'MAM' THEN
+				-- Kill the message
+				RETURN ExcludeMessage('OBR.4.1 = MAM');
+			END IF;
+		END IF;
+		--Replace ITS.RFE with blank START
+		IF EXISTS(newSegment.hl7:OBR.hl7:"OBR.31.ReasonforStudy".*[]) THEN
+			DECLARE OBR31PACS CHARACTER;
+			DECLARE OBR31_COUNT INTEGER CARDINALITY(newSegment.hl7:OBR.hl7:"OBR.31.ReasonforStudy"[]);
+			DECLARE OBR31_INDEX INTEGER 1;
+			DECLARE OBRFINAL CHARACTER '';
+
+			WHILE (OBR31_INDEX <= OBR31_COUNT) DO
+				CALL procAppendSubChars(newSegment.hl7:OBR.hl7:"OBR.31.ReasonforStudy"[OBR31_INDEX],env,OBR31PACS);
+				SET OBRFINAL = OBRFINAL || OBR31PACS ||'~';
+				SET OBR31_INDEX = OBR31_INDEX + 1;
+			END WHILE;
+
+			SET OBRFINAL = REPLACE(OBRFINAL,'ITS.RFE',' ');
+			SET OBRFINAL = REPLACE(OBRFINAL,'^',' ');
+			SET OBRFINAL = REPLACE(OBRFINAL,'~',',');
+			SET OBRFINAL = REPLACE(OBRFINAL,'&',', ');
+			SET OBRFINAL = LEFT(OBRFINAL,LENGTH(OBRFINAL)-1);
+			SET OBRFINAL = TRIM(LEADING ' ' FROM OBRFINAL);
+			--Set OBR31 as NULL
+			CALL CommonHCP.Routines.ESQL.procClearFieldsInSet(newSegment,'31');
+			CALL CommonHCP.Routines.ESQL.SetValue(newSegment, 'OBR\OBR.31.ReasonforStudy\CWE.1',OBRFINAL); --Replace ITS.RFE with blank END
+
+		END IF;
+		
+
+
+		END CASE;
+
+		MOVE ref_anyHL7Segment NEXTSIBLING;
+	END WHILE;
+	RETURN TRUE;
+END;
+
+	CREATE FUNCTION ExcludeMessage (IN Reason CHARACTER ) RETURNS BOOLEAN
+	BEGIN
+		SET Environment.ExcludeReason = Reason;
+		PROPAGATE TO TERMINAL 'out1' DELETE NONE;
+		RETURN FALSE;
+	END;
+	
+	
+	CREATE PROCEDURE PrepServiceNow (IN ShortDescritpion CHARACTER, IN DescriptionMessageHeader CHARACTER, IN IncludeExceptionTree CHARACTER,
+			IN callerid CHARACTER, IN contactphone CHARACTER, IN reporting_location CHARACTER, IN impact CHARACTER, IN urgency CHARACTER,
+			IN hot_ticket CHARACTER, IN service CHARACTER, IN service_component CHARACTER, IN issue CHARACTER, IN assignment_group CHARACTER,
+			IN assigned_to CHARACTER, IN userName CHARACTER, IN firstName CHARACTER, IN lastName CHARACTER)
+	BEGIN
+		SET Environment.SERVICENOW.Generate = '1';
+		SET Environment.SERVICENOW.ExceptionMessageHeader = COALESCE(DescriptionMessageHeader, '');
+		SET Environment.SERVICENOW.IncludeExceptionTree = COALESCE(IncludeExceptionTree, '0');
+		
+		
+		SET Environment.SERVICENOW.callerid = callerid;
+		SET Environment.SERVICENOW.contactphone = contactphone;   
+		SET Environment.SERVICENOW.reporting_location = reporting_location; 
+		SET Environment.SERVICENOW.ExceptionMessage = COALESCE(ShortDescritpion, '');
+		SET Environment.SERVICENOW.impact = impact;
+		SET Environment.SERVICENOW.urgency = urgency;
+		SET Environment.SERVICENOW.hot_ticket = hot_ticket;
+		SET Environment.SERVICENOW.service = service;
+		SET Environment.SERVICENOW.service_component = service_component;
+		SET Environment.SERVICENOW.issue = issue;
+		SET Environment.SERVICENOW.assignment_group = assignment_group;
+		SET Environment.SERVICENOW.assigned_to = assigned_to;
+		SET Environment.SERVICENOW.userName = userName;
+		SET Environment.SERVICENOW.firstName = firstName;
+		SET Environment.SERVICENOW.lastName = lastName;
+	END;
+	
+	CREATE PROCEDURE CopyMessageHeaders() BEGIN
+		DECLARE I INTEGER 1;
+		DECLARE J INTEGER;
+		SET J = CARDINALITY(InputRoot.*[]);
+		WHILE I < J DO
+			SET OutputRoot.*[I] = InputRoot.*[I];
+			SET I = I + 1;
+		END WHILE;
+	END;
+
+	CREATE PROCEDURE CopyEntireMessage() BEGIN
+		SET OutputRoot = InputRoot;
+	END;
+	
+	/*
+* procAppendSubChars - This Procedure takes a reference and will concatenate all subfields using '^' as the delimiter
+*/
+CREATE PROCEDURE procAppendSubChars(IN refSegment REFERENCE,IN TempRef REFERENCE,OUT AppendedValue CHARACTER)
+BEGIN
+	MOVE refSegment FIRSTCHILD;
+	WHILE LASTMOVE(refSegment) DO
+		IF (EXISTS(refSegment.*[])) THEN
+			DECLARE tempSegment REFERENCE TO refSegment;
+			MOVE tempSegment FIRSTCHILD;
+			WHILE LASTMOVE(tempSegment) DO
+				IF tempSegment IS NOT NULL THEN
+					SET TempRef.tempSegment1 = COALESCE(TempRef.tempSegment1,'') || tempSegment || '^';
+				END IF;
+				MOVE tempSegment NEXTSIBLING;
+			END WHILE;
+		ELSE
+			IF refSegment is NOT NULL THEN
+				SET TempRef.tempSegment1 = COALESCE(TempRef.tempSegment1,'') || refSegment || '^';
+			END IF;
+		END IF;
+		MOVE refSegment NEXTSIBLING;
+	END WHILE;
+	SET TempRef.tempSegment1 = LEFT(TempRef.tempSegment1,LENGTH(TempRef.tempSegment1)-1);
+	SET AppendedValue = TempRef.tempSegment1;
+	DELETE FIELD TempRef.tempSegment1;
+END;
+	
+END MODULE;
+
+
+
+
+
+CREATE COMPUTE MODULE SPN_MTPACS_ORM_SPN_VRAD_ORM_Transform_tpsMediLinkedResults
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN
+		-- CALL CopyMessageHeaders();
+		CALL CopyEntireMessage();
+		CALL CommonHCP.Routines.ESQL.tpsMediLinkedResults(OutputRoot)  ;
+		RETURN FALSE;
+	END;
+
+	CREATE PROCEDURE CopyMessageHeaders() BEGIN
+		DECLARE I INTEGER 1;
+		DECLARE J INTEGER;
+		SET J = CARDINALITY(InputRoot.*[]);
+		WHILE I < J DO
+			SET OutputRoot.*[I] = InputRoot.*[I];
+			SET I = I + 1;
+		END WHILE;
+	END;
+	
+	CREATE FUNCTION ExcludeMessage (IN Reason CHARACTER ) RETURNS BOOLEAN
+	BEGIN
+		SET Environment.ExcludeReason = Reason;
+		PROPAGATE TO TERMINAL 'out1' DELETE NONE;
+		RETURN FALSE;
+	END;
+
+	CREATE PROCEDURE CopyEntireMessage() BEGIN
+		SET OutputRoot = InputRoot;
+	END;
+END MODULE;
+
+
+
+CREATE COMPUTE MODULE SPN_MTPACS_ORM_SPN_VRAD_ORM_Transform_tpsEntrprsPacs
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN
+		-- CALL CopyMessageHeaders();
+		CALL CopyEntireMessage();
+		DECLARE INTERFACE_ID CHARACTER 'SPN MTPACS ORM TO VRAD';
+		DECLARE ckillMessage CHARACTER '';
+		CALL CommonHCP.Routines.ESQL.tpsEntrprsPacs(OutputRoot,'SPN',INTERFACE_ID,'ORM') INTO ckillMessage; --here ckillMessage is used because in TpsEntrprsPacs some condition are going to kill messages so False will be Written if any kill message condition satisfies
+
+		IF ckillMessage <> '' THEN
+       		RETURN ExcludeMessage(ckillMessage);
+		END IF;
+        
+		RETURN FALSE;
+	END;
+
+	CREATE PROCEDURE CopyMessageHeaders() BEGIN
+		DECLARE I INTEGER 1;
+		DECLARE J INTEGER;
+		SET J = CARDINALITY(InputRoot.*[]);
+		WHILE I < J DO
+			SET OutputRoot.*[I] = InputRoot.*[I];
+			SET I = I + 1;
+		END WHILE;
+	END;
+	
+	CREATE FUNCTION ExcludeMessage (IN Reason CHARACTER ) RETURNS BOOLEAN
+	BEGIN
+		SET Environment.ExcludeReason = Reason;
+		PROPAGATE TO TERMINAL 'out1' DELETE NONE;
+		RETURN FALSE;
+	END;
+
+	CREATE PROCEDURE CopyEntireMessage() BEGIN
+		SET OutputRoot = InputRoot;
+	END;
+END MODULE;

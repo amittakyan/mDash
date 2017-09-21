@@ -1,0 +1,5 @@
+runmqsc ENT_DEV_01 < /opt/mqm/bar/ENT_MTADM_ADT_SRH_ATHMTDB_ADT_Transform/CreateTransformQueues.mqsc
+
+
+
+

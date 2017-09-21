@@ -1,0 +1,4 @@
+runmqsc ENT_DEV_01 < /opt/mqm/bar/NLA_ARIA_ORM_Receiver/CreateReceiverQueues.mqsc
+
+
+

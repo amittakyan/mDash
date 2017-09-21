@@ -1,0 +1,76 @@
+<project xmlns:artifact="antlib:org.apache.maven.artifact.ant" default="init">
+    <path id="maven-ant-tasks.classpath" path="lib/maven-ant-tasks-2.1.3.jar" /> 
+   <!-- directory-properties -->
+    <property name="barfile" location="/var/lib/jenkins/workspace/Sender/SPN_MTDEPT_ORMUPD_Sender/SPN_MTDEPT_ORMUPD_Sender_Build/barfile/Sender/SPN_MTDEPT_ORMUPD_Sender" />
+    <property name="libs.dir" value="libs" />
+     
+    <!-- maven-ant-tasks jar -->
+    <property name="mvn.ant.tasks.jar" value="maven-ant-tasks-2.1.3.jar" />
+	<property name="ml-ant-http.jar" value="ml-ant-http-1.1.3jar"/>
+ 
+	<property name="buildPropertiesDirectory" location="/var/lib/jenkins/workspace/Sender/SPN_MTDEPT_ORMUPD_Sender/SPN_MTDEPT_ORMUPD_Sender_Build"/>
+	<property file="${buildPropertiesDirectory}/build.properties"/>
+	<property name="workspaceDirForDeploy" location="/var/lib/jenkins/workspace/Sender/SPN_MTDEPT_ORMUPD_Sender/Deploy_to_test"/>
+	<property name="ArtifactoryFileDir" location="${workspaceDirForDeploy}/temp"/>
+
+     
+   <!-- artifact-properties -->
+    <property name="artifact.group" value="Raw_bar" />
+	<!--<echo>${env}</echo>-->
+	<property name="artifact.name" value="SPN_MTDEPT_ORMUPD_Sender_Build" />
+	<property name="artifactmodified.name" value="SPN_MTDEPT_ORMUPD_Sender_Build.${env}" />
+    <property name="artifact.version" value="${RevisionNo}" />
+    <property name="artifact.type" value="bar" />
+    <property name="artifact.pom" value="pom.xml" />
+ 
+    <!-- remote-repo -->
+    <property name="remote.repo.url" value="${artifactoryURL}" />
+    <property name="remote.repo.username" value="${artifactoryUserName}" />
+    <property name="remote.repo.password" value="${artifactoryPassword}" />
+ 
+    <!-- including tha maven-ant-tasks-jar into classpath -->
+    <path id="maven-ant-tasks.classpath" path="${libs.dir}/${mvn.ant.tasks.jar}" />
+    <typedef resource="org/apache/maven/artifact/ant/antlib.xml" uri="antlib:org.apache.maven.artifact.ant" classpathref="maven-ant-tasks.classpath" />
+ 
+    <!-- init-task for coupling following tasks -->
+    <target name="init">
+		<antcall target="clean" />
+		<antcall target="UploadArtifact" />		
+    </target>
+ 
+    <!-- deploy-task for creating and writing a temporary pom-file and deploying the artifact beside this pom-file -->
+    
+	<target name="UploadArtifact">
+        <artifact:pom id="tmp.pom" groupid="${artifact.group}" artifactid="${artifact.name}" version="${artifact.version}" packaging="${artifact.type}" name="${artifact.name}" />
+        <artifact:writepom pomRefId="tmp.pom" file="${artifact.pom}"/>
+        <artifact:deploy file="${barfile}/${artifact.name}.${artifact.type}">
+            <remoteRepository url="${remote.repo.url}">
+                <authentication username="${remote.repo.username}" password="${remote.repo.password}" />
+            </remoteRepository>
+            <pom file="${artifact.pom}" />            
+        </artifact:deploy>
+    </target>
+     
+	 
+	 <target name="init1">
+		<antcall target="clean" />
+		<antcall target="Upload_Env_Arftifacts" />		
+    </target>
+	
+	 <target name="Upload_Env_Arftifacts">
+	 <echo message="ENV--------------------> ${env} "/>
+        <artifact:pom id="tmp.pom" groupid="${env}" artifactid="${artifactmodified.name}" version="${artifact.version}" packaging="${artifact.type}" name="${artifactmodified.name}" />
+        <artifact:writepom pomRefId="tmp.pom" file="${artifact.pom}"/>
+         <artifact:deploy file="${ArtifactoryFileDir}/SPN_MTDEPT_ORMUPD_Sender_Build-${env}.${RevisionNo}.bar">
+            <remoteRepository url="${remote.repo.url}">
+                <authentication username="${remote.repo.username}" password="${remote.repo.password}" />
+            </remoteRepository>
+            <pom file="${artifact.pom}" />            
+        </artifact:deploy>
+   </target>
+    <!-- clean-task for deletion of an earlier created temporary pom-file -->
+    <target name="clean">
+        <delete file="${artifact.pom}" />
+    </target>
+	 
+</project>

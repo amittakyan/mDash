@@ -1,0 +1,321 @@
+DECLARE filters SHARED ROW;
+
+CREATE COMPUTE MODULE ENT_MTPACS_ORM_ENT_PS360_ORM_Transform
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN
+        DECLARE hl7 NAMESPACE 'urn:hl7-org:v2xml';
+        DECLARE SendingRegion,MSH4,PatientID CHARACTER;
+        DECLARE App CHARACTER 'PS360';
+        DECLARE OBX3_1,OBX3_2, OBX5,OBX5_1,OBX5_2,ConcatString_OBX5_2,OBR4_2 CHARACTER;
+        DECLARE Flag BOOLEAN FALSE;
+        DECLARE OBR3_1 CHARACTER;
+		DECLARE OBR4_1 ,OBR4_3, OBR4 CHARACTER;
+		DECLARE OBR_19 CHARACTER;
+		DECLARE SENDTWICE CHARACTER ''; --Used for sending a second message AKS 4/6/2017
+          
+		CALL CopyMessageHeaders();
+		-- CALL CopyEntireMessage();
+		SET Environment.MsgID = InputRoot.MQRFH2.usr.uniqueMessageId;
+		
+		-- SET OutputRoot.DFDL.hl7:HL7.hl7:MSH = InputRoot.DFDL.hl7:HL7.hl7:MSH;
+----		SET ADTType = InputRoot.DFDL.hl7:HL7.hl7:MSH.hl7:"MSH.9.MessageType".hl7:"MSG.2";
+----		IF  ADTType NOT IN ('A06','A07','A10') THEN
+----			SET Environment.ExcludeReason = ADTType || '-are being filtered out';
+----			PROPAGATE TO TERMINAL 'out1';
+----			RETURN FALSE;
+--		END IF;
+		
+		SET MSH4 = CAST(InputRoot.DFDL.hl7:HL7.hl7:MSH.hl7:"MSH.4.SendingFacility".hl7:"HD.1" AS CHARACTER CCSID 1208);
+		
+		IF (MSH4 IS NOT NULL) THEN
+			CALL CommonHCP.Routines.ESQL.GetUserDefinedConfigurableServiceProperty('FacilityToRegion', MSH4) INTO SendingRegion;
+		END IF;
+		
+		SET OutputRoot.DFDL.hl7:HL7.hl7:MSH.hl7:"MSH.1.FieldSeparator" = InputRoot.DFDL.hl7:HL7.hl7:MSH.hl7:"MSH.1.FieldSeparator";
+		SET OutputRoot.DFDL.hl7:HL7.hl7:MSH.hl7:"MSH.2.ServiceString" = InputRoot.DFDL.hl7:HL7.hl7:MSH.hl7:"MSH.2.ServiceString";
+		SET OutputRoot.DFDL.hl7:HL7.hl7:MSH.hl7:"MSH.4.SendingFacility".hl7:"HD.1" = SendingRegion;
+		SET OutputRoot.DFDL.hl7:HL7.hl7:MSH.hl7:"MSH.7.DateTimeOfMessage" = InputRoot.DFDL.hl7:HL7.hl7:MSH.hl7:"MSH.7.DateTimeOfMessage";
+		SET OutputRoot.DFDL.hl7:HL7.hl7:MSH.hl7:"MSH.9.MessageType" = InputRoot.DFDL.hl7:HL7.hl7:MSH.hl7:"MSH.9.MessageType";
+		SET OutputRoot.DFDL.hl7:HL7.hl7:MSH.hl7:"MSH.10.MessageControlID" = InputRoot.DFDL.hl7:HL7.hl7:MSH.hl7:"MSH.10.MessageControlID";
+		
+		
+		DECLARE outanyHL7Segment REFERENCE TO OutputRoot.DFDL.hl7:HL7;
+		DECLARE newSegment REFERENCE TO OutputRoot.DFDL.hl7:HL7;
+		
+		DECLARE OBR_ref  REFERENCE TO InputRoot.DFDL.hl7:HL7.hl7:anyHL7Segment;
+		DECLARE PID_ref  REFERENCE TO InputRoot.DFDL.hl7:HL7.hl7:anyHL7Segment;
+						
+		DECLARE ref_anyHL7Segment REFERENCE TO InputRoot.DFDL.hl7:HL7.hl7:anyHL7Segment;
+		
+		WHILE(LASTMOVE(ref_anyHL7Segment)) DO
+								
+			CASE FIELDNAME(ref_anyHL7Segment.[1])
+			WHEN 'EVN' THEN
+				CREATE LASTCHILD OF outanyHL7Segment AS newSegment FROM ref_anyHL7Segment;
+				CALL CommonHCP.Routines.ESQL.procClearFieldsInSet(newSegment,'2,3,4,5,6,7');
+				
+			WHEN 'PID' THEN
+				 CREATE LASTCHILD OF outanyHL7Segment AS newSegment FROM ref_anyHL7Segment;
+				 CALL CommonHCP.Routines.ESQL.procClearFieldsInSet(newSegment,'1,6,9,10,12,15,16,17,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40');	 			
+				 MOVE PID_ref TO newSegment;
+				 
+			WHEN 'PV1' THEN
+				 CREATE LASTCHILD OF outanyHL7Segment AS newSegment FROM ref_anyHL7Segment;
+				 CALL CommonHCP.Routines.ESQL.procClearFieldsInSet(newSegment,'5,6,11,12,13,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,40,41,42,43,46,47,48,49,50,51,52,53');
+				 IF (MSH4 IS NOT NULL) THEN
+					CALL CommonHCP.Routines.ESQL.SetValue(newSegment, 'PV1\PV1.39.ServicingFacility\CWE.1', MSH4);
+				 END IF;
+				 
+				 
+			WHEN 'IN1' THEN
+				 CREATE LASTCHILD OF outanyHL7Segment AS newSegment FROM ref_anyHL7Segment;
+				 CALL CommonHCP.Routines.ESQL.procClearFieldsInSet(newSegment,'5,14,15,18,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,46,47,48,49,50,51,52,53,54');
+			
+			WHEN 'ORC' THEN
+				 CREATE LASTCHILD OF outanyHL7Segment AS newSegment FROM ref_anyHL7Segment;
+				 CALL CommonHCP.Routines.ESQL.procClearFieldsInSet(newSegment,'2,3,6,9,10,11,13,14,16');
+			
+			WHEN 'OBR' THEN
+				 
+				 CREATE LASTCHILD OF outanyHL7Segment AS newSegment FROM ref_anyHL7Segment;
+				 CALL CommonHCP.Routines.ESQL.procClearFieldsInSet(newSegment,'1,6');
+				 
+				 CALL CommonHCP.Routines.ESQL.GetValue(newSegment, 'OBR\OBR.3.FillerOrderNumber\EI.1') INTO OBR3_1;
+				 
+				 -- Get OBR4.1,OBR4.2 and OBR4.3 
+				 CALL CommonHCP.Routines.ESQL.GetValue(newSegment, 'OBR\OBR.4.UniversalServiceIdentifier\CWE.1') INTO OBR4_1;
+ 				 CALL CommonHCP.Routines.ESQL.GetValue(newSegment, 'OBR\OBR.4.UniversalServiceIdentifier\CWE.2') INTO OBR4_2;
+ 				 CALL CommonHCP.Routines.ESQL.GetValue(newSegment, 'OBR\OBR.4.UniversalServiceIdentifier\CWE.3') INTO OBR4_3;
+
+			    --Used to Query claPacsMod1Mod2 when region is CLA - Added 4/6/2017 AK  					
+				IF (SendingRegion = 'CLA') THEN
+					IF (filters.CLAprocedure.[1] IS NULL) THEN
+						DECLARE SQLCLA CHARACTER 'SELECT * FROM dbo.claPacsMod1Mod2';
+						SET filters.CLAprocedure = PASSTHRU(SQLCLA);		
+					END IF;
+					
+
+					SET OBR4 = OBR4_1 || '|' || OBR4_2;
+					SET Environment.Modality[] = SELECT ITEM F.OUT FROM filters.CLAprocedure[] AS F WHERE F.IN = OBR4;
+					
+					IF (Environment.Modality IS NOT NULL) THEN
+							SET SENDTWICE = '1';
+					END IF;
+					
+				END IF;
+				-- New Code End 4/6/2017 AKS --
+				
+				DECLARE sendCategory CHARACTER;
+
+				IF (COALESCE(OBR4_1, '') = '') THEN
+						SET Environment.ExcludeReason = 'Category is missing';
+						PROPAGATE TO TERMINAL 'out1';
+						RETURN FALSE;
+				ELSEIF (filters.category.{OBR4_1} IS NULL) THEN					
+					BEGIN
+						DECLARE EXIT HANDLER FOR SQLSTATE LIKE '%'
+						BEGIN
+							SET filters.category.{OBR4_1} = 'N';
+						END;
+					
+						CALL CommonHCP.Routines.ESQL.GetUserDefinedConfigurableServiceProperty('ENT_MTPACS_ORM_ENT_PS360_ORM_Transform', OBR4_1) INTO sendCategory;
+						SET filters.category.{OBR4_1} = sendCategory; 
+					END;
+				END IF;
+				
+				IF (filters.category.{OBR4_1} = 'N') THEN
+					SET Environment.ExcludeReason = 'Category '''|| OBR4_1 || ''' should not be sent';
+					PROPAGATE TO TERMINAL 'out1';
+					RETURN FALSE;
+				END IF;
+				
+				
+				IF (filters.procedure.[1] IS NULL) THEN
+					DECLARE SQL CHARACTER 'SELECT * FROM PS360_EXCLUSIONS';
+					SET filters.procedure = PASSTHRU(SQL);
+				END IF;
+							
+				/*
+				SET RegionSet = THE(SELECT ITEM Ranges.RANGES.COMPANY_SET from rsRanges AS Ranges WHERE Ranges.RANGES.REGION = REGION_NAME1);
+				*/
+				
+				SET Environment.Pass[] = SELECT ITEM F.Region FROM filters.procedure[] AS F WHERE F.Region = SendingRegion AND F.Category = OBR4_1 AND F.Mnemonic = OBR4_2; 
+				
+				IF (Environment.Pass IS NOT NULL) THEN
+					SET Environment.ExcludeReason = 'Procedure '''|| OBR4_2 || ''' should not be sent';
+					PROPAGATE TO TERMINAL 'out1';
+					RETURN FALSE;
+				END IF;
+				
+				
+/*				 
+				--  Modality Filtering logic Starts
+				-- 	If the Category and Mnemonic are exists in look up table then kill the message.
+				 				 
+				 SET Environment.SENT_TO_PS360[] = SELECT T.Region,T.Application,T.Category,T.Mnemonic 
+				 									  FROM Database.dbo.PACS_Mod_Filter AS T 
+				 									  WHERE T.Region = SendingFacility 
+				 									  AND T.Application = App 
+				 									  AND T.Category = OBR4_1 
+				 									  AND T.Mnemonic = OBR4_2
+				 									  AND T.Filter = 'true';
+					
+				 
+				 IF(Environment.SENT_TO_PS360.[1] IS NULL) THEN
+						SET Environment.ExcludeReason = 'Category - '|| OBR4_1 || ' and ' ||'Mnemonic - '|| OBR4_2 || ' not in the table for ' || SendingFacility;
+						PROPAGATE TO TERMINAL 'out1';
+						RETURN FALSE;
+				 END IF;
+				 -- Modality Filtering logic Ends
+*/				 
+				 -- Padd the Accession number and log into database for operational purpose.
+				 IF (OBR3_1 IS NOT NULL ) THEN
+	 				CALL AddLeadingZero ( OBR3_1) INTO OBR3_1;
+	 				CALL CommonHCP.Routines.ESQL.SetValue(newSegment, 'OBR\OBR.3.FillerOrderNumber\EI.1', OBR3_1);
+	 				SET Environment.Accession = OBR3_1;
+	 			 ELSE 
+ 				 -- Temperary fix for orders which has Null values in OBR3 field.
+ 				 	SET Environment.ExcludeReason = 'OBR3.1 is NULL, So the order is getting filtered out';
+						PROPAGATE TO TERMINAL 'out1';
+						RETURN FALSE;
+ 				 END IF;
+	 			 
+	 			 /*
+ 				 -- If exists , as per the requirement  OBR4.1 and OBR4.2  should be concantenated  before sending it to sender.
+ 				 -- If exists ,OBR4.3 value should go in OBR4.2.		 
+ 				 IF (OBR4_1 IS NOT NULL ) AND (OBR4_2 IS NOT NULL) THEN
+ 				 	CALL CommonHCP.Routines.ESQL.SetValue(newSegment, 'OBR\OBR.4.UniversalServiceIdentifier\CWE.1', OBR4_1||'_'||OBR4_2);
+ 				 	CALL CommonHCP.Routines.ESQL.SetValue(newSegment, 'OBR\OBR.4.UniversalServiceIdentifier\CWE.2', NULL);
+ 				 END IF;
+ 				 
+ 				 IF (OBR4_3 IS NOT NULL) THEN	
+ 				 	CALL CommonHCP.Routines.ESQL.SetValue(newSegment, 'OBR\OBR.4.UniversalServiceIdentifier\CWE.2', OBR4_3);
+ 				 	CALL CommonHCP.Routines.ESQL.SetValue(newSegment, 'OBR\OBR.4.UniversalServiceIdentifier\CWE.3', NULL);
+ 				 END IF;
+				 */
+				 MOVE OBR_ref TO newSegment;
+				 
+			WHEN 'OBX' THEN
+				 
+				 
+				 
+				 CREATE LASTCHILD OF outanyHL7Segment AS newSegment FROM ref_anyHL7Segment;
+				 CALL CommonHCP.Routines.ESQL.procClearFieldsInSet(newSegment,'6');	
+				 
+				 CALL CommonHCP.Routines.ESQL.GetValue(newSegment, 'OBX\OBX.3.ObservationIdentifier\CWE.1') INTO OBX3_1;
+				 CALL CommonHCP.Routines.ESQL.GetValue(newSegment, 'OBX\OBX.3.ObservationIdentifier\CWE.2') INTO OBX3_2;
+				 CALL CommonHCP.Routines.ESQL.GetValue(newSegment, 'OBX\OBX.5.ObservationValue') INTO OBX5;
+				 
+				 -- OBX5.2 is required to concantenate with OBR4.2  If OBX3.1 is ITS.R/L'
+				 IF OBX3_1 = 'ITS.R/L' THEN
+				 	SET Flag = TRUE;
+					SET ConcatString_OBX5_2 = SUBSTRING(OBX5 AFTER '^');
+				 END IF ;
+				 
+				 -- OBX5 is replaced with OBX 3.2 and OBX5.1
+				 IF (OBX5 IS NOT NULL) THEN
+				 	SET OBX5_1 = SUBSTRING(OBX5 BEFORE '^');
+				 	SET OBX5_2 = OBX5_1;
+				 	SET OBX5_1 = OBX3_2;
+				 	SET OBX5 = OBX5_1||'^'||OBX5_2; 
+				 ELSE
+				 	CALL CommonHCP.Routines.ESQL.SetValue(newSegment, 'OBX\OBX.5.ObservationValue', OBX3_2);
+				 END IF;
+				
+				 CALL CommonHCP.Routines.ESQL.SetValue(newSegment, 'OBX\OBX.5.ObservationValue', OBX5);	
+				 
+			WHEN 'NTE' THEN
+				 CREATE LASTCHILD OF outanyHL7Segment AS newSegment FROM ref_anyHL7Segment;				
+			 			
+			END CASE;
+				MOVE ref_anyHL7Segment NEXTSIBLING;
+		END WHILE;
+		
+			/* Sometimes MT is sending blank PID3 - Patient ID . At PS360 it is a required field .
+			   So adding a filter to filter such blank PID3 messages .*/
+			   
+			CALL CommonHCP.Routines.ESQL.GetValue(PID_ref, 'PID\PID.3.PatientIdentifierList\CX.1')INTO PatientID;
+		  	IF PatientID IS NULL THEN
+		  		SET Environment.ExcludeReason = 'PID3 - PatientID is NULL, So filtered out';
+				PROPAGATE TO TERMINAL 'out1';
+				RETURN FALSE;
+		  	END IF;
+		
+		
+		-- OBR4.2 transformation starts
+		-- IF OBX 3.1 is ITS.R/L then take the value of OBX5.2 and concatenate with OBR 4.2 
+
+		IF (Flag) THEN
+			DECLARE newOBR4_3 CHARACTER;
+			SET newOBR4_3 = OBR4_3 ||' '||ConcatString_OBX5_2;
+			CALL CommonHCP.Routines.ESQL.SetValue(OBR_ref, 'OBR\OBR.4.UniversalServiceIdentifier\CWE.3', newOBR4_3);
+		END IF;
+		-- OBR 4.2 transformation ends
+		
+		--Used to send a secondary message with 'M' appended to order number if claPacsMod1Mod2 returns a pipe seperated value when region is CLA - Added 4/6/2017 AK 		
+		IF (SENDTWICE = '1') THEN
+			SET OBR_19 = Environment.Modality;
+			CALL CommonHCP.Routines.ESQL.SetValue(OBR_ref, 'OBR\OBR.19.PlacerField2', SUBSTRING(OBR_19 BEFORE '|'));
+			PROPAGATE TO TERMINAL 'out' DELETE NONE;
+			IF(COALESCE(SUBSTRING(OBR_19 AFTER '|'), '') <> '') THEN 
+				CALL CommonHCP.Routines.ESQL.SetValue(OBR_ref, 'OBR\OBR.19.PlacerField2', SUBSTRING(OBR_19 AFTER '|'));
+				CALL CommonHCP.Routines.ESQL.SetValue(OBR_ref, 'OBR\OBR.3.FillerOrderNumber\EI.1', CommonHCP.Routines.ESQL.GetValue(OBR_ref, 'OBR\OBR.3.FillerOrderNumber\EI.1') || 'M');
+				PROPAGATE TO TERMINAL 'out';
+			END IF;		
+		ELSE
+			PROPAGATE TO TERMINAL 'out';
+			
+		END IF;
+		--New Code End - Added 4/6/2017 AK	
+				
+				
+				
+				
+								
+		RETURN FALSE;
+	END;
+
+	CREATE FUNCTION ExcludeMessage (IN Reason CHARACTER ) RETURNS BOOLEAN
+	BEGIN
+		SET Environment.ExcludeReason = Reason;
+		PROPAGATE TO TERMINAL 'out1' DELETE NONE;
+		RETURN FALSE;
+	END;
+	
+	CREATE FUNCTION AddLeadingZero (IN InputString CHARACTER ) RETURNS CHARACTER
+	BEGIN
+		DECLARE OutputString,TempString1,TempString2 CHARACTER;
+		DECLARE LengthOfString INTEGER;
+	    
+	    SET TempString1 = SUBSTRING(InputString BEFORE '-');
+		SET TempString2 = SUBSTRING(InputString AFTER '-');
+		
+		SET LengthOfString = LENGTH(TempString2);
+		IF  LengthOfString < 7 THEN
+			DECLARE P INTEGER;
+			DECLARE PaddingZeros CHARACTER;
+			SET P = 7 - LengthOfString;
+		    SET PaddingZeros = REPLICATE ('0',P);
+ 	        SET OutputString = TempString1 || '-' || PaddingZeros || TempString2;
+		    RETURN OutputString;
+		ELSE
+			SET OutputString = InputString;
+			RETURN OutputString;
+		END IF;
+		
+	END;
+	
+	CREATE PROCEDURE CopyMessageHeaders() BEGIN
+		DECLARE I INTEGER 1;
+		DECLARE J INTEGER;
+		SET J = CARDINALITY(InputRoot.*[]);
+		WHILE I < J DO
+			SET OutputRoot.*[I] = InputRoot.*[I];
+			SET I = I + 1;
+		END WHILE;
+	END;
+
+	CREATE PROCEDURE CopyEntireMessage() BEGIN
+		SET OutputRoot = InputRoot;
+	END;
+END MODULE;

@@ -1,0 +1,306 @@
+DECLARE hl7 NAMESPACE 'urn:hl7-org:v2xml';
+
+CREATE COMPUTE MODULE ENT_MTADM_ADT_ENT_ATH_ADT_Transform
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN
+		
+		CALL CopyMessageHeaders();
+		--CALL CopyEntireMessage();
+			
+		---SET ADT TYPE FOR FURTHUR USE	
+
+			
+		
+		DECLARE HL7name, ZPIfetch,ZPI1,ZPI2,Med_MRN, AppName,EID, Clinic, MRN,Med_ProvID, Med_INSUID , MT_ACC, ADMIT_TIME , MT_FACI, TIME_ID,TxID,Patient_Class,Patient_Type,Patient_Status char;
+		DECLARE ZPI_COUNT, ADTTYPE INT 0;
+		DECLARE ZPIPOSITION1, ZPIPOSITION2,ZPIPOSITION3,ZPIPOSITION4 INT;
+		
+		IF InputRoot.DFDL.hl7:HL7.hl7:MSH.hl7:"MSH.9.MessageType".hl7:"MSG.2"='A04' THEN
+			SET ADTTYPE=1;
+		ELSEIF InputRoot.DFDL.hl7:HL7.hl7:MSH.hl7:"MSH.9.MessageType".hl7:"MSG.2"='A05' THEN
+			SET ADTTYPE=1;
+		ELSEIF InputRoot.DFDL.hl7:HL7.hl7:MSH.hl7:"MSH.9.MessageType".hl7:"MSG.2"='A34' THEN
+			SET ADTTYPE=2;
+		END IF;
+		
+		
+		SET OutputRoot.DFDL.hl7:HL7.hl7:MSH = InputRoot.DFDL.hl7:HL7.hl7:MSH;
+		
+		DECLARE outanyHL7Segment REFERENCE TO OutputRoot.DFDL.hl7:HL7;
+		DECLARE newSegment REFERENCE TO OutputRoot.DFDL.hl7:HL7;
+		
+		DECLARE ref_anyHL7Segment REFERENCE TO InputRoot.DFDL.hl7:HL7.hl7:anyHL7Segment;
+		DECLARE  PID_ref  REFERENCE TO InputRoot.DFDL.hl7:HL7.hl7:anyHL7Segment;
+		DECLARE  PV1_ref  REFERENCE TO InputRoot.DFDL.hl7:HL7.hl7:anyHL7Segment;
+		DECLARE  EVN_ref  REFERENCE TO InputRoot.DFDL.hl7:HL7.hl7:anyHL7Segment;
+		
+		IF  ADTTYPE=2 THEN
+			SET OutputRoot.DFDL.hl7:HL7.hl7:MSH.hl7:"MSH.3.SendingApplication".hl7:"HD.1"='ATHENANET';
+			DECLARE Med_MRN_NEW,ADMITDATE,ADMITTIME CHAR;
+			declare IdentifierNO, COUNT INT;
+
+			
+			WHILE(LASTMOVE(ref_anyHL7Segment)) DO			
+			CASE FIELDNAME(ref_anyHL7Segment.[1])		
+			WHEN 'PID' THEN
+			CREATE LASTCHILD OF outanyHL7Segment AS newSegment FROM ref_anyHL7Segment;
+			SET Med_MRN_NEW=ref_anyHL7Segment.hl7:PID.hl7:"PID.3.PatientIdentifierList".hl7:"CX.1";
+			SET MT_ACC=ref_anyHL7Segment.hl7:PID.hl7:"PID.18.PatientAccountNumber".hl7:"CX.1";
+			MOVE PID_ref TO newSegment;	
+			WHEN 'EVN' THEN
+			CREATE LASTCHILD OF outanyHL7Segment AS newSegment FROM ref_anyHL7Segment;
+			MOVE EVN_ref TO newSegment;	
+			WHEN 'MRG' THEN
+			SET Med_MRN=ref_anyHL7Segment.hl7:MRG.hl7:"MRG.1.PriorPatientIdentifierList".hl7:"CX.1";
+			END CASE;
+			MOVE ref_anyHL7Segment NEXTSIBLING;
+		END WHILE;
+				
+		SET Environment.Variables.Identifier[]=(SELECT *
+						FROM Database.dbo.ATH_MT_Identifier AS M 
+						WHERE M.MT_MRN=Med_MRN AND M.MT_ACC=MT_ACC);
+		set IdentifierNO =CARDINALITY(Environment.Variables.Identifier[]);
+	  
+	    	IF IdentifierNO>0 THEN
+	    	  ---update new MT_MRN
+	    		UPDATE Database.dbo.ATH_MT_Identifier as M
+		 		SET MT_MRN=Med_MRN_NEW
+				WHERE M.MT_MRN=Med_MRN AND M.MT_ACC=MT_ACC;
+				SET OutputRoot.DFDL.hl7:HL7.hl7:MSH.hl7:"MSH.9.MessageType".hl7:"MSG.2"='A31';
+
+				CREATE LASTCHILD OF OutputRoot.DFDL.hl7:HL7 AS newSegment namespace hl7 name 'anyHL7Segment';
+		--	MOVE PV1_ref TO newSegment;	
+				SET COUNT=1;
+				WHILE COUNT<=IdentifierNO DO
+					IF(Environment.Variables.Identifier[COUNT].ATH_MRN IS NOT NULL) THEN
+						SET EVN_ref.hl7:EVN.hl7:"EVN.1.EventTypeCode"='A31';
+						SET PID_ref.hl7:PID.hl7:"PID.2.PatientID".hl7:"CX.1"=Environment.Variables.Identifier[COUNT].ATH_EID;
+						SET PID_ref.hl7:PID.hl7:"PID.3.PatientIdentifierList"[1].hl7:"CX.1"=Environment.Variables.Identifier[COUNT].ATH_MRN;
+						SET PID_ref.hl7:PID.hl7:"PID.3.PatientIdentifierList"[1].hl7:"CX.4".hl7:"HD.1"='ATHMRN';
+						SET PID_ref.hl7:PID.hl7:"PID.3.PatientIdentifierList"[2].hl7:"CX.1"=Med_MRN_NEW;
+						SET PID_ref.hl7:PID.hl7:"PID.3.PatientIdentifierList"[2].hl7:"CX.4".hl7:"HD.1"='MTMRN';
+						SET OutputRoot.DFDL.hl7:HL7.hl7:anyHL7Segment[3].hl7:PV1.hl7:"PV1.1.SetIDPV1"='1';
+						SET OutputRoot.DFDL.hl7:HL7.hl7:anyHL7Segment[3].hl7:PV1.hl7:"PV1.2.PatientClass".hl7:"CWE.1"='0';
+						SET OutputRoot.DFDL.hl7:HL7.hl7:anyHL7Segment[3].hl7:PV1.hl7:"PV1.3.AssignedPatientLocation".hl7:"PL.4".hl7:"HD.1"=Environment.Variables.Identifier[COUNT].ATH_CLINIC;
+						SET OutputRoot.DFDL.hl7:HL7.hl7:anyHL7Segment[3].hl7:PV1.hl7:"PV1.19.VisitNumber".hl7:"CX.1"=Environment.Variables.Identifier[COUNT].ATH_ACC;
+						SET OutputRoot.DFDL.hl7:HL7.hl7:anyHL7Segment[3].hl7:PV1.hl7:"PV1.41.AccountStatus".hl7:"CWE.1"='REG';
+						SET ADMITDATE=Environment.Variables.Identifier[COUNT].ADMIT_DATE;
+						SET ADMITTIME=Environment.Variables.Identifier[COUNT].ADMIT_TIME;
+						SET ADMITTIME=ADMITDATE||ADMITTIME;
+						SET OutputRoot.DFDL.hl7:HL7.hl7:anyHL7Segment[3].hl7:PV1.hl7:"PV1.44.AdmitDateTime"=ADMITTIME;
+						PROPAGATE TO TERMINAL 'out' DELETE NONE;
+					END IF;
+					SET COUNT=COUNT+1;
+				END WHILE;	
+		
+
+			
+	    	END IF;		
+    	RETURN FALSE;
+		
+	ELSE
+		
+		---DO IF ADT NOT A34
+		
+		
+		
+		WHILE(LASTMOVE(ref_anyHL7Segment)) DO
+			
+			
+			CASE FIELDNAME(ref_anyHL7Segment.[1])
+			WHEN 'Zxx' THEN
+			IF 	ref_anyHL7Segment.hl7:Zxx."Zxx.0.NAME"='ZPI' THEN
+				SET ZPIfetch =ref_anyHL7Segment.hl7:Zxx."Zxx.1.FIELD1";
+
+				SET ZPIPOSITION1=POSITION('-' IN ZPIfetch REPEAT 1);
+				SET ZPIPOSITION2=POSITION('-' IN ZPIfetch REPEAT 2);
+				SET ZPIPOSITION3=POSITION('-' IN ZPIfetch REPEAT 3);
+				SET ZPIPOSITION4=POSITION('^' IN ZPIfetch REPEAT 1);
+				
+				SET AppName=SUBSTRING(ZPIfetch FROM 1 FOR ZPIPOSITION1-1 );
+				SET EID=SUBSTRING(ZPIfetch FROM ZPIPOSITION1+1 FOR ZPIPOSITION2-ZPIPOSITION1-1 );
+				SET Clinic=SUBSTRING(ZPIfetch FROM ZPIPOSITION2+1 FOR ZPIPOSITION3-ZPIPOSITION2-1);
+				SET MRN=SUBSTRING(ZPIfetch FROM ZPIPOSITION3+1 FOR ZPIPOSITION4-ZPIPOSITION3-1);
+				SET ZPI2=SUBSTRING(ZPIfetch AFTER '^');
+
+				SET ZPI_COUNT=ZPI_COUNT+1;
+			ELSEIF ref_anyHL7Segment.hl7:Zxx."Zxx.0.NAME"='ZPD' THEN
+				DECLARE  ZPD_ref  REFERENCE TO ref_anyHL7Segment;
+			ELSE
+				CREATE LASTCHILD OF outanyHL7Segment AS newSegment FROM ref_anyHL7Segment;
+			END IF	;
+				
+			WHEN 'PID' THEN
+			CREATE LASTCHILD OF outanyHL7Segment AS newSegment FROM ref_anyHL7Segment;
+			MOVE PID_ref TO newSegment;			
+			WHEN 'PV1' THEN
+			CREATE LASTCHILD OF outanyHL7Segment AS newSegment FROM ref_anyHL7Segment;
+			MOVE PV1_ref TO newSegment;
+			WHEN 'UB2' THEN	
+			DECLARE  UB2_ref  REFERENCE TO ref_anyHL7Segment;	
+			WHEN 'EVN' THEN
+			CREATE LASTCHILD OF outanyHL7Segment AS newSegment FROM ref_anyHL7Segment;	
+			set newSegment.hl7:EVN.hl7:"EVN.1.EventTypeCode"='A31';
+			WHEN 'IN1' THEN	
+			DECLARE  IN1_ref  REFERENCE TO ref_anyHL7Segment;	
+			WHEN 'GT1' THEN	
+			DECLARE  GT1_ref  REFERENCE TO ref_anyHL7Segment;	
+			else
+			CREATE LASTCHILD OF outanyHL7Segment AS newSegment FROM ref_anyHL7Segment;
+			END CASE;
+
+			MOVE ref_anyHL7Segment NEXTSIBLING;
+		END WHILE;
+
+		IF (ZPI_COUNT<1 OR ADTTYPE<>1) THEN
+			RETURN FALSE;
+		END IF;
+		
+		
+	--PID	
+		call constructNextSibling(PID_ref.hl7:PID, 'PID.3.PatientIdentifierList','N');
+		SET Med_MRN=PID_ref.hl7:PID.hl7:"PID.3.PatientIdentifierList".hl7:"CX.1";
+		SET MT_ACC =PID_ref.hl7:PID.hl7:"PID.18.PatientAccountNumber".hl7:"CX.1";
+		call constructNextSibling(PID_ref.hl7:PID , 'PID.2.PatientID','N');
+		SET PID_ref.hl7:PID.hl7:"PID.2.PatientID".hl7:"CX.1"=EID;
+		SET PID_ref.hl7:PID.hl7:"PID.3.PatientIdentifierList"[1].hl7:"CX.1"=MRN;
+		SET PID_ref.hl7:PID.hl7:"PID.3.PatientIdentifierList"[1].hl7:"CX.4".hl7:"HD.1"='ATHMRN';
+		SET PID_ref.hl7:PID.hl7:"PID.3.PatientIdentifierList"[2].hl7:"CX.1"=Med_MRN;
+		SET PID_ref.hl7:PID.hl7:"PID.3.PatientIdentifierList"[2].hl7:"CX.4".hl7:"HD.1"='MTMRN';
+		SET PID_ref.hl7:PID.hl7:"PID.15.PrimaryLanguage"=NULL;
+		SET PID_ref.hl7:PID.hl7:"PID.22.EthnicGroup"=NULL;
+				
+  --PV1
+  		call constructNextSibling(PV1_ref.hl7:PV1 , 'PV1.19.VisitNumber','N');
+		SET PV1_ref.hl7:PV1.hl7:"PV1.19.VisitNumber".hl7:"CX.1" =ZPI2;
+		SET Med_ProvID= PV1_ref.hl7:PV1.hl7:"PV1.7.AttendingDoctor".hl7:"XCN.1";
+		SET Environment.variables=the(select M.ATH_PROVIDER FROM Database.dbo.ATH_MT_PROVIDER as M where M.MT_PROVIDER=Med_ProvID);
+		
+		
+		CALL CommonHCP.Routines.ESQL.SetValue(PV1_ref, 'PV1\PV1.17.AdmittingDoctor\XCN.1', Environment.variables.ATH_PROVIDER);
+		CALL CommonHCP.Routines.ESQL.SetValue(PV1_ref, 'PV1\PV1.17.AdmittingDoctor\XCN.2\FN.1', CommonHCP.Routines.ESQL.GetValue(PV1_ref, 'PV1\PV1.7.AttendingDoctor\XCN.2\FN.1'));
+		CALL CommonHCP.Routines.ESQL.SetValue(PV1_ref, 'PV1\PV1.17.AdmittingDoctor\XCN.3', CommonHCP.Routines.ESQL.GetValue(PV1_ref, 'PV1\PV1.7.AttendingDoctor\XCN.3'));
+		CALL CommonHCP.Routines.ESQL.SetValue(PV1_ref, 'PV1\PV1.17.AdmittingDoctor\XCN.4', CommonHCP.Routines.ESQL.GetValue(PV1_ref, 'PV1\PV1.7.AttendingDoctor\XCN.4'));
+		
+		
+		SET	PV1_ref.hl7:PV1.hl7:"PV1.3.AssignedPatientLocation"=NULL;
+		call constructNextSibling(PV1_ref.hl7:PV1 , 'PV1.3.AssignedPatientLocation','N');
+		
+		SET Patient_Class=PV1_ref.hl7:PV1.hl7:"PV1.2.PatientClass".hl7:"CWE.1";
+		SET Patient_Type=PV1_ref.hl7:PV1.hl7:"PV1.18.PatientType".hl7:"CWE.1";
+		SET Patient_Status=PV1_ref.hl7:PV1.hl7:"PV1.41.AccountStatus".hl7:"CWE.1";
+		
+			
+
+		SET PV1_ref.hl7:PV1.hl7:"PV1.3.AssignedPatientLocation".hl7:"PL.4".hl7:"HD.1"=Clinic;						
+		SET PV1_ref.hl7:PV1.hl7:"PV1.7.AttendingDoctor"=NULL;
+		SET ADMIT_TIME =PV1_ref.hl7:PV1.hl7:"PV1.44.AdmitDateTime";
+		set ADMIT_TIME=SUBSTRING(ADMIT_TIME FROM 1 FOR 8);
+	--EVN	
+				
+ 		SET MT_FACI= OutputRoot.DFDL.hl7:HL7.hl7:MSH.hl7:"MSH.4.SendingFacility".hl7:"HD.1";
+	--TIMESTAMP	
+		SET TxID=InputRoot.MQRFH2.usr.uniqueMessageId;	
+		
+		SET Environment.variables.TIME=CURRENT_TIMESTAMP;
+		SET TIME_ID= Environment.variables.TIME;
+		SET TIME_ID= translate(TIME_ID,'-:.TIMESTAMP ','');
+		SET TIME_ID= SUBSTRING(TIME_ID FROM 2 FOR 8);
+	--DATABASE UPDATE	
+		UPDATE Database.dbo.ATH_MT_Identifier as M
+		 	SET MT_MRN=Med_MRN,
+		 		MT_ACC=MT_ACC,
+		 		TxNID_MT2ATHADT=TxID,
+		 		CURR_TIME_MT2ATHADT=TIME_ID,
+		 		PATIENT_TYPE = Patient_Type,
+		 		PATIENT_CLASS = Patient_Class,
+		 		ACCOUNT_STATUS = Patient_Status
+		 WHERE M.ATH_MRN=MRN AND M.ATH_EID = EID AND M.ATH_CLINIC=Clinic AND M.ATH_ACC=ZPI2 AND M.ADMIT_DATE=ADMIT_TIME AND M.MT_FACILITY =MT_FACI; 
+	--CHANGE TO A31
+		SET OutputRoot.DFDL.hl7:HL7.hl7:MSH.hl7:"MSH.9.MessageType".hl7:"MSG.2"='A31';
+		SET OutputRoot.DFDL.hl7:HL7.hl7:MSH.hl7:"MSH.3.SendingApplication".hl7:"HD.1"='ATHENANET';
+		SET Environment=NULL;
+				
+			 
+		PROPAGATE TO TERMINAL 'out';	
+	
+	RETURN FALSE;	
+	
+	END IF;
+END;		
+	
+	CREATE PROCEDURE CopyMessageHeaders() BEGIN
+		DECLARE I INTEGER 1;
+		DECLARE J INTEGER;
+		SET J = CARDINALITY(InputRoot.*[]);
+		WHILE I < J DO
+			SET OutputRoot.*[I] = InputRoot.*[I];
+			SET I = I + 1;
+		END WHILE;
+	END;
+
+	CREATE PROCEDURE CopyEntireMessage() BEGIN
+		SET OutputRoot = InputRoot;
+	END;
+
+	--CREATE NEW CHILD IN anysegment
+
+
+CREATE PROCEDURE constructNextSibling(IN insertInTo REFERENCE, IN attribToInsert CHARACTER, IN repeatable CHARACTER)
+BEGIN
+
+      DECLARE prevSibling REFERENCE TO insertInTo.*[1];
+      DECLARE nextSibling REFERENCE TO insertInTo.*[2];
+      DECLARE prevFieldName, nextFieldName CHARACTER;
+      DECLARE prevIndex, nextIndex, currIndex INTEGER;
+      DECLARE flag BOOLEAN;
+      DECLARE counter INTEGER 0;
+
+      Y:WHILE LASTMOVE(prevSibling) DO
+
+      SET prevFieldName = FIELDNAME(prevSibling);
+      SET nextFieldName = FIELDNAME(nextSibling);
+
+      IF SUBSTRING(prevFieldName FROM 6 FOR 1) = '.' THEN
+            SET prevIndex = CAST(SUBSTRING(prevFieldName FROM 5 FOR 1)AS INTEGER);
+      ELSE
+            SET prevIndex = CAST(SUBSTRING(prevFieldName FROM 5 FOR 2)AS INTEGER);
+      END IF;
+      IF SUBSTRING(nextFieldName FROM 6 FOR 1) = '.' THEN
+            SET nextIndex = CAST(SUBSTRING(nextFieldName FROM 5 FOR 1)AS INTEGER);
+      ELSE
+            SET nextIndex = CAST(SUBSTRING(nextFieldName FROM 5 FOR 2)AS INTEGER);
+      END IF;
+      IF SUBSTRING(attribToInsert FROM 6 FOR 1) = '.' THEN
+            SET currIndex = CAST(SUBSTRING(attribToInsert FROM 5 FOR 1)AS INTEGER);
+      ELSE
+            SET currIndex = CAST(SUBSTRING(attribToInsert FROM 5 FOR 2)AS INTEGER);
+      END IF;
+
+      IF (prevIndex < currIndex AND nextIndex > currIndex OR nextIndex = currIndex) THEN
+            SET counter = counter +1;
+            SET flag = TRUE;
+            LEAVE Y;
+      END IF;
+
+      MOVE prevSibling NEXTSIBLING;
+      MOVE nextSibling NEXTSIBLING;
+      SET counter = counter +1;
+
+END WHILE;
+
+IF ((prevIndex < currIndex AND nextIndex > currIndex)  AND repeatable = 'N') THEN
+      CREATE NEXTSIBLING OF insertInTo.*[counter] NAMESPACE hl7 NAME attribToInsert;
+ELSEIF ((prevIndex = currIndex OR nextIndex = currIndex) AND repeatable = 'Y') THEN
+      CREATE NEXTSIBLING OF insertInTo.*[counter+1] NAMESPACE hl7 NAME attribToInsert;
+ELSEIF (prevIndex IS NULL AND nextIndex IS NULL) THEN
+      CREATE NEXTSIBLING OF insertInTo.*[1] NAMESPACE hl7 NAME attribToInsert;
+ELSEIF((prevIndex = currIndex OR nextIndex = currIndex) AND repeatable = 'N' )THEN
+	set counter = counter +1;
+END IF;
+
+END;
+
+
+
+END MODULE;

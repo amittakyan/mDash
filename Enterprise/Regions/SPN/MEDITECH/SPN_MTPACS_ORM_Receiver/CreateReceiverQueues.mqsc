@@ -1,0 +1,11 @@
+******************************
+*
+* runmqsc TIIBMQ01 (or appropriate QueueManager) from IBM Intgration Console and copy and paste this script into it
+*
+* Type end to exit
+*
+******************************
+DEFINE TOPIC ('SPN.MTPACS.ORM.RECV.TL') TOPICSTR(SPN.MTPACS.ORM.RECV.TL) REPLACE
+DEFINE QALIAS('SPN.MTPACS.ORM.RECV.QA') TARGET(SPN.MTPACS.ORM.RECV.TL) TARGTYPE(TOPIC) REPLACE
+
+

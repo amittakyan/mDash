@@ -1,0 +1,153 @@
+
+
+CREATE COMPUTE MODULE ENT_MTADM_ADT_SRH_ATHMTDB_ADT_Transform
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN
+        DECLARE hl7 NAMESPACE 'urn:hl7-org:v2xml';
+        
+		
+		CALL CopyMessageHeaders();
+		-- CALL CopyEntireMessage();
+		DECLARE ADTTYPE CHAR;
+		DECLARE ADTNO INT 0;
+		declare IN1_COUNT INT 0;
+		SET ADTTYPE=InputRoot.DFDL.hl7:HL7.hl7:MSH.hl7:"MSH.9.MessageType".hl7:"MSG.2" ;
+		If ADTTYPE='A05'  THEN
+			SET ADTNO=1;
+		ELSEIF ADTTYPE ='A04' THEN
+			SET ADTNO=3;
+		elseif ADTTYPE='A08' THEN
+			SET ADTNO=2;
+		END IF;
+		IF ADTNO =0 THEN
+			RETURN FALSE;
+		END IF;
+		DECLARE  ZPIfetch,MT_MRN, MT_ACC,Med_INS ,ATH_INS , ADMIT_TIME,ADMIT_DATE , MT_FACI,ATH_ACC, PassthruCommand,SEQNO,Patient_Class,Patient_Type,Patient_Status char;
+		DECLARE ZPICOUNT INT;
+		SET OutputRoot.DFDL.hl7:HL7.hl7:MSH = InputRoot.DFDL.hl7:HL7.hl7:MSH;
+		SET MT_FACI= OutputRoot.DFDL.hl7:HL7.hl7:MSH.hl7:"MSH.4.SendingFacility".hl7:"HD.1";
+		
+
+		
+		DECLARE outanyHL7Segment REFERENCE TO OutputRoot.DFDL.hl7:HL7;
+		DECLARE newSegment REFERENCE TO OutputRoot.DFDL.hl7:HL7;
+		
+		DECLARE ref_anyHL7Segment REFERENCE TO InputRoot.DFDL.hl7:HL7.hl7:anyHL7Segment;
+		DECLARE  PID_ref  REFERENCE TO InputRoot.DFDL.hl7:HL7.hl7:anyHL7Segment;
+		DECLARE  PV1_ref  REFERENCE TO InputRoot.DFDL.hl7:HL7.hl7:anyHL7Segment;
+		
+		WHILE(LASTMOVE(ref_anyHL7Segment)) DO
+			
+			
+			CASE FIELDNAME(ref_anyHL7Segment.[1])
+			WHEN 'Zxx' THEN
+			IF 	ref_anyHL7Segment.hl7:Zxx."Zxx.0.NAME"='ZPI' THEN
+				SET ZPIfetch =ref_anyHL7Segment.hl7:Zxx."Zxx.1.FIELD1";
+				SET ZPICOUNT=ZPICOUNT+1;
+			END IF;
+			WHEN 'PID' THEN
+			SET	MT_MRN=ref_anyHL7Segment.hl7:PID.hl7:"PID.3.PatientIdentifierList".hl7:"CX.1";
+			SET	MT_ACC=ref_anyHL7Segment.hl7:PID.hl7:"PID.18.PatientAccountNumber".hl7:"CX.1";
+			
+			MOVE PID_ref TO newSegment;			
+			WHEN 'PV1' THEN
+			SET ADMIT_DATE=ref_anyHL7Segment.hl7:PV1.hl7:"PV1.44.AdmitDateTime";
+			SET Patient_Class=ref_anyHL7Segment.hl7:PV1.hl7:"PV1.2.PatientClass".hl7:"CWE.1";
+			SET Patient_Type=ref_anyHL7Segment.hl7:PV1.hl7:"PV1.18.PatientType".hl7:"CWE.1";
+			SET Patient_Status=ref_anyHL7Segment.hl7:PV1.hl7:"PV1.41.AccountStatus".hl7:"CWE.1";
+			MOVE PV1_ref TO newSegment;	
+			WHEN 'IN1' THEN	
+				if IN1_COUNT=0 THEN
+				SET  Med_INS =ref_anyHL7Segment.hl7:IN1.hl7:"IN1.2.InsurancePlanID".hl7:"CWE.1";
+				DECLARE  IN1_ref  REFERENCE TO ref_anyHL7Segment;	
+				SET IN1_COUNT=IN1_COUNT+1;
+				END IF;
+			END CASE;			
+			MOVE ref_anyHL7Segment NEXTSIBLING;
+		END WHILE;
+
+		IF ZPIfetch is not null THEN
+			RETURN FALSE;
+		elseif (Patient_Type='ER' OR Patient_Type='RCR') THEN
+			RETURN FALSE;
+		END IF;
+
+		DECLARE  TxID ,TIME_ID CHAR;
+		SET TxID=InputRoot.MQRFH2.usr.uniqueMessageId;
+		SET Environment.variables.TIME=CURRENT_TIMESTAMP;
+		SET TIME_ID= Environment.variables.TIME;
+		SET TIME_ID= translate(TIME_ID,'-:.TIMESTAMP ','');
+		SET TIME_ID= SUBSTRING(TIME_ID FROM 2 FOR 8);
+		SET ADMIT_TIME=SUBSTRING(ADMIT_DATE FROM 9 FOR 4);
+		SET ADMIT_DATE=SUBSTRING(ADMIT_DATE FROM 1 FOR 8);
+		
+	IF	ADTNO=1 THEN
+		---A05
+		set PassthruCommand='SELECT NEXT VALUE for dbo.ATH_ACC_PENDING_SEQ';
+		set Environment.Variables.NO=PASSTHRU (PassthruCommand);
+		set SEQNO=Environment.Variables.NO.Column0;
+		set ATH_ACC='PENDING'||''||SEQNO;
+			
+		insert into Database.dbo.ATH_MT_Identifier (ATH_ACC,MT_MRN,MT_ACC,MT_INSURANCE,MT_FACILITY,ADMIT_DATE,ADMIT_TIME,CURR_TIME_MT2ATHADT,TxNID_MT2ATHADT,PATIENT_CLASS,PATIENT_TYPE,ACCOUNT_STATUS) VALUES(ATH_ACC,MT_MRN,MT_ACC,Med_INS,MT_FACI,ADMIT_DATE,ADMIT_TIME,TIME_ID,TxID,Patient_Class,Patient_Type,Patient_Status );
+	
+	ELSEIF ADTNO=3 THEN
+		---A04
+		SET Environment.Variables.Identifier=the(SELECT *
+						FROM Database.dbo.ATH_MT_Identifier AS M 
+						WHERE  M.MT_MRN=MT_MRN AND M.MT_ACC=MT_ACC);
+			IF CARDINALITY(Environment.Variables.Identifier.*[])>0 THEN
+				---IF ID exist then update following value
+				UPDATE Database.dbo.ATH_MT_Identifier as M
+		 		SET PATIENT_CLASS=Patient_Class,
+		 		PATIENT_TYPE=Patient_Type,
+		 		ACCOUNT_STATUS=Patient_Status ,
+		 		TxNID_MT2ATHADT=TxID,
+		 		CURR_TIME_MT2ATHADT=TIME_ID,
+		 		MT_INSURANCE=Med_INS
+		 		WHERE  M.MT_MRN=MT_MRN AND M.MT_ACC=MT_ACC; 
+		 	
+			 ELSE	
+			 	---If ID not exist then create a new ID
+			 	set PassthruCommand='SELECT NEXT VALUE for dbo.ATH_ACC_PENDING_SEQ';
+				set Environment.Variables.NO=PASSTHRU (PassthruCommand);
+				set SEQNO=Environment.Variables.NO.Column0;
+				set ATH_ACC='PENDING'||''||SEQNO;
+			
+				insert into Database.dbo.ATH_MT_Identifier (ATH_ACC,MT_MRN,MT_ACC,MT_INSURANCE,MT_FACILITY,ADMIT_DATE,ADMIT_TIME,CURR_TIME_MT2ATHADT,TxNID_MT2ATHADT,PATIENT_CLASS,PATIENT_TYPE,ACCOUNT_STATUS) VALUES(ATH_ACC,MT_MRN,MT_ACC,Med_INS,MT_FACI,ADMIT_DATE,ADMIT_TIME,TIME_ID,TxID,Patient_Class,Patient_Type,Patient_Status );			
+						
+			END IF;
+	ELSEIF	ADTNO=2 THEN
+			SET Environment.Variables.Identifier=the(SELECT *
+						FROM Database.dbo.ATH_MT_Identifier AS M 
+						WHERE  M.MT_MRN=MT_MRN AND M.MT_ACC=MT_ACC);
+		IF CARDINALITY(Environment.Variables.Identifier.*[])>0 THEN
+			UPDATE Database.dbo.ATH_MT_Identifier as M
+		 		SET PATIENT_CLASS=Patient_Class,
+		 		PATIENT_TYPE=Patient_Type,
+		 		ACCOUNT_STATUS=Patient_Status ,
+		 		TxNID_MT2ATHADT=TxID,
+		 		CURR_TIME_MT2ATHADT=TIME_ID,
+		 		MT_INSURANCE=Med_INS
+		 	WHERE  M.MT_MRN=MT_MRN AND M.MT_ACC=MT_ACC; 
+		end if;
+	END IF;	
+		
+
+		
+	RETURN FALSE;
+	END;
+
+	CREATE PROCEDURE CopyMessageHeaders() BEGIN
+		DECLARE I INTEGER 1;
+		DECLARE J INTEGER;
+		SET J = CARDINALITY(InputRoot.*[]);
+		WHILE I < J DO
+			SET OutputRoot.*[I] = InputRoot.*[I];
+			SET I = I + 1;
+		END WHILE;
+	END;
+
+	CREATE PROCEDURE CopyEntireMessage() BEGIN
+		SET OutputRoot = InputRoot;
+	END;
+END MODULE;

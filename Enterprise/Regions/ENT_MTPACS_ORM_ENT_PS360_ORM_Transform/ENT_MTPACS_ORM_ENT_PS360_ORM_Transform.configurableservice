@@ -1,0 +1,2 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configurableservice CT="Y" CT64="Y" DX="Y" EDUS="Y" FETALMED="Y" MAM="Y" MFMRAD="Y" MMU="Y" MOBIS="Y" MRI="Y" NM="Y" OPRADNB="Y" PET="Y" PO_RAD="Y" PO_RADTX="Y" SP="Y" TXCITY="Y" US="Y" VASC="Y" csName="ENT_MTPACS_ORM_ENT_PS360_ORM_Transform" csType="UserDefined"/>
