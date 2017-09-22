@@ -1,0 +1,47 @@
+
+
+Importing file: C:\Users\tor00021\Desktop\ServiceNow.wsdl
+
+The WSDL import will proceed with bindings ServiceNowSoap_CreateIncidentFromError, ServiceNowSoap_incident.
+Creating wsdl schema document for file:///C:/Users/tor00021/Desktop/ServiceNow.wsdl.
+Parsing wsdl binding {http://www.service-now.com}ServiceNowSoap_incident.
+Parsing wsdl binding input insert.
+Parsing wsdl binding output insert.
+Parsing wsdl binding input update.
+Parsing wsdl binding output update.
+Parsing wsdl binding input deleteMultiple.
+Parsing wsdl binding output deleteMultiple.
+Parsing wsdl binding input getKeys.
+Parsing wsdl binding output getKeys.
+Parsing wsdl binding input deleteRecord.
+Parsing wsdl binding output deleteRecord.
+Parsing wsdl binding input get.
+Parsing wsdl binding output get.
+Parsing wsdl binding input getRecords.
+Parsing wsdl binding output getRecords.
+Parsing wsdl binding input aggregate.
+Parsing wsdl binding output aggregate.
+Parsing wsdl binding {http://www.service-now.com}ServiceNowSoap_CreateIncidentFromError.
+Parsing wsdl binding input generateSessionLink.
+Parsing wsdl binding output generateSessionLink.
+Processing doc style for operation insert.
+Processing doc style for operation update.
+Processing doc style for operation deleteMultiple.
+Processing doc style for operation getKeys.
+Processing doc style for operation deleteRecord.
+Processing doc style for operation get.
+Processing doc style for operation getRecords.
+Processing doc style for operation aggregate.
+Processing doc style for operation generateSessionLink.
+Populating WSDL schema ServiceNow.xsd.
+Creating file ServiceNow.xsd in the workspace.
+Creating file /ServiceNowWSDL/ServiceNow_InlineSchema1.xsd in the workspace.
+Copying source WSDL ServiceNow.wsdl to ServiceNow.wsdl.
+
+Elapsed time processing this message definition file: 0.857 seconds
+Number of warnings for this message definition file: 0
+
+
+Number of files processed: 1
+
+

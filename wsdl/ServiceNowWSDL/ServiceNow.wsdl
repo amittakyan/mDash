@@ -1,0 +1,295 @@
+<?xml version="1.0" encoding="UTF-8"?><wsdl:definitions targetNamespace="http://www.service-now.com" xmlns:http="http://schemas.xmlsoap.org/wsdl/http/" xmlns:mime="http://schemas.xmlsoap.org/wsdl/mime/" xmlns:sncns="http://www.service-now.com" xmlns:soap="http://schemas.xmlsoap.org/wsdl/soap/" xmlns:soapenc="http://schemas.xmlsoap.org/soap/encoding/" xmlns:tns="http://www.service-now.com/incident" xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <wsdl:documentation>
+    <wsdl:appinfo source="WMQI_APPINFO">
+      <MRWSDLAppInfo imported="true">
+        <generatedXSD location="ServiceNow_InlineSchema1.xsd"/>
+        <binding hasEncoding="false" imported="true" name="ServiceNowSoap_incident" originalBindingStyle="document"/>
+        <binding hasEncoding="false" imported="true" name="ServiceNowSoap_CreateIncidentFromError" originalBindingStyle="document"/>
+      </MRWSDLAppInfo>
+    </wsdl:appinfo>
+  </wsdl:documentation>
+  <wsdl:types>
+    
+          <xsd:schema elementFormDefault="qualified" targetNamespace="http://www.service-now.com/incident" xmlns:ibmSchExtn="http://www.ibm.com/schema/extensions">
+<xsd:include schemaLocation="ServiceNow_InlineSchema1.xsd"/>
+    </xsd:schema>
+    </wsdl:types>
+  
+    <wsdl:message name="generateSessionLinkSoapIn">
+    <wsdl:part element="tns:generateSessionLink" name="CreateIncidentFromError">
+    </wsdl:part>
+  </wsdl:message>
+  <wsdl:message name="generateSessionLinkSoapOut">
+    <wsdl:part element="tns:generateSessionLinkResponse" name="CreateIncidentFromError">
+    </wsdl:part>
+  </wsdl:message>
+
+  
+  <wsdl:message name="deleteRecordSoapIn">
+    <wsdl:part element="tns:deleteRecord" name="incident">
+    </wsdl:part>
+  </wsdl:message>
+  <wsdl:message name="getRecordsSoapIn">
+    <wsdl:part element="tns:getRecords" name="incident">
+    </wsdl:part>
+  </wsdl:message>
+  <wsdl:message name="aggregateSoapOut">
+    <wsdl:part element="tns:aggregateResponse" name="incident">
+    </wsdl:part>
+  </wsdl:message>
+  <wsdl:message name="getSoapIn">
+    <wsdl:part element="tns:get" name="incident">
+    </wsdl:part>
+  </wsdl:message>
+  <wsdl:message name="getSoapOut">
+    <wsdl:part element="tns:getResponse" name="incident">
+    </wsdl:part>
+  </wsdl:message>
+  <wsdl:message name="deleteMultipleSoapOut">
+    <wsdl:part element="tns:deleteMultipleResponse" name="incident">
+    </wsdl:part>
+  </wsdl:message>
+  <wsdl:message name="insertSoapIn">
+    <wsdl:part element="tns:insert" name="incident">
+    </wsdl:part>
+  </wsdl:message>
+  <wsdl:message name="aggregateSoapIn">
+    <wsdl:part element="tns:aggregate" name="incident">
+    </wsdl:part>
+  </wsdl:message>
+  <wsdl:message name="getKeysSoapIn">
+    <wsdl:part element="tns:getKeys" name="incident">
+    </wsdl:part>
+  </wsdl:message>
+  <wsdl:message name="getKeysSoapOut">
+    <wsdl:part element="tns:getKeysResponse" name="incident">
+    </wsdl:part>
+  </wsdl:message>
+  <wsdl:message name="updateSoapOut">
+    <wsdl:part element="tns:updateResponse" name="incident">
+    </wsdl:part>
+  </wsdl:message>
+  <wsdl:message name="deleteRecordSoapOut">
+    <wsdl:part element="tns:deleteRecordResponse" name="incident">
+    </wsdl:part>
+  </wsdl:message>
+  <wsdl:message name="deleteMultipleSoapIn">
+    <wsdl:part element="tns:deleteMultiple" name="incident">
+    </wsdl:part>
+  </wsdl:message>
+  <wsdl:message name="insertSoapOut">
+    <wsdl:part element="tns:insertResponse" name="incident">
+    </wsdl:part>
+  </wsdl:message>
+  <wsdl:message name="getRecordsSoapOut">
+    <wsdl:part element="tns:getRecordsResponse" name="incident">
+    </wsdl:part>
+  </wsdl:message>
+  <wsdl:message name="updateSoapIn">
+    <wsdl:part element="tns:update" name="incident">
+    </wsdl:part>
+  </wsdl:message>
+  
+  
+  <wsdl:portType name="ServiceNowSoap_CreateIncidentFromError">
+    <wsdl:operation name="generateSessionLink">
+      <wsdl:input message="sncns:generateSessionLinkSoapIn">
+    </wsdl:input>
+      <wsdl:output message="sncns:generateSessionLinkSoapOut">
+    </wsdl:output>
+    </wsdl:operation>
+	
+  </wsdl:portType>
+  
+  <wsdl:portType name="ServiceNowSoap_incident">
+	
+    <wsdl:operation name="insert">
+      <wsdl:input message="sncns:insertSoapIn">
+    </wsdl:input>
+      <wsdl:output message="sncns:insertSoapOut">
+    </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="update">
+      <wsdl:input message="sncns:updateSoapIn">
+    </wsdl:input>
+      <wsdl:output message="sncns:updateSoapOut">
+    </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="deleteMultiple">
+      <wsdl:input message="sncns:deleteMultipleSoapIn">
+    </wsdl:input>
+      <wsdl:output message="sncns:deleteMultipleSoapOut">
+    </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="getKeys">
+      <wsdl:input message="sncns:getKeysSoapIn">
+    </wsdl:input>
+      <wsdl:output message="sncns:getKeysSoapOut">
+    </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="deleteRecord">
+      <wsdl:input message="sncns:deleteRecordSoapIn">
+    </wsdl:input>
+      <wsdl:output message="sncns:deleteRecordSoapOut">
+    </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="get">
+      <wsdl:input message="sncns:getSoapIn">
+    </wsdl:input>
+      <wsdl:output message="sncns:getSoapOut">
+    </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="getRecords">
+      <wsdl:input message="sncns:getRecordsSoapIn">
+    </wsdl:input>
+      <wsdl:output message="sncns:getRecordsSoapOut">
+    </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="aggregate">
+      <wsdl:input message="sncns:aggregateSoapIn">
+    </wsdl:input>
+      <wsdl:output message="sncns:aggregateSoapOut">
+    </wsdl:output>
+    </wsdl:operation>
+  </wsdl:portType>
+  
+  
+  <wsdl:binding name="ServiceNowSoap_CreateIncidentFromError"
+  	type="sncns:ServiceNowSoap_CreateIncidentFromError">
+
+  	<soap:binding style="document"
+  		transport="http://schemas.xmlsoap.org/soap/http" />
+  	<wsdl:operation name="generateSessionLink">
+
+
+  		<soap:operation
+  			soapAction="http://www.service-now.com/generateSessionLink" />
+  		<wsdl:input>
+
+
+  			<soap:body use="literal" />
+  		</wsdl:input>
+  		<wsdl:output>
+
+
+  			<soap:body use="literal" />
+  		</wsdl:output>
+  	</wsdl:operation>
+
+  </wsdl:binding>
+
+  <wsdl:binding name="ServiceNowSoap_incident" type="sncns:ServiceNowSoap_incident">
+    <soap:binding style="document" transport="http://schemas.xmlsoap.org/soap/http"/>
+    <wsdl:operation name="insert">
+      <soap:operation soapAction="http://www.service-now.com/incident/insert" style="document"/>
+      
+      <wsdl:input>
+        <soap:body use="literal"/>
+        
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal"/>
+        
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="update">
+      <soap:operation soapAction="http://www.service-now.com/incident/update" style="document"/>
+      
+      <wsdl:input>
+        <soap:body use="literal"/>
+        
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal"/>
+        
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="deleteMultiple">
+      <soap:operation soapAction="http://www.service-now.com/incident/deleteMultiple" style="document"/>
+      
+      <wsdl:input>
+        <soap:body use="literal"/>
+        
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal"/>
+        
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="getKeys">
+      <soap:operation soapAction="http://www.service-now.com/incident/getKeys" style="document"/>
+      
+      <wsdl:input>
+        <soap:body use="literal"/>
+        
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal"/>
+        
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="deleteRecord">
+      <soap:operation soapAction="http://www.service-now.com/incident/deleteRecord" style="document"/>
+      
+      <wsdl:input>
+        <soap:body use="literal"/>
+        
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal"/>
+        
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="get">
+      <soap:operation soapAction="http://www.service-now.com/incident/get" style="document"/>
+      
+      <wsdl:input>
+        <soap:body use="literal"/>
+        
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal"/>
+        
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="getRecords">
+      <soap:operation soapAction="http://www.service-now.com/incident/getRecords" style="document"/>
+      
+      <wsdl:input>
+        <soap:body use="literal"/>
+        
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal"/>
+        
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="aggregate">
+      <soap:operation soapAction="http://www.service-now.com/incident/aggregate" style="document"/>
+      
+      <wsdl:input>
+        <soap:body use="literal"/>
+        
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal"/>
+        
+      </wsdl:output>
+    </wsdl:operation>
+  </wsdl:binding>
+  
+  <wsdl:service name="ServiceNow_incident">
+    <wsdl:port binding="sncns:ServiceNowSoap_incident" name="ServiceNow_incident">
+      <soap:address location="https://christusstage.service-now.com/incident.do?SOAP"/>
+      
+    </wsdl:port>
+  </wsdl:service>
+  
+  <wsdl:service name="ServiceNow_CreateIncidentFromError">
+    <wsdl:port binding="sncns:ServiceNowSoap_CreateIncidentFromError" name="ServiceNow_CreateIncidentFromError">
+      <soap:address location="https://christusstage.service-now.com/CreateIncidentFromError.do?SOAP"/>
+      
+    </wsdl:port>
+  </wsdl:service>
+  
+</wsdl:definitions>

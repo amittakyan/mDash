@@ -1,0 +1,22 @@
+
+
+Importing file: C:\Users\che00379\Desktop\ServiceNowWSDL.wsdl
+
+The WSDL import will proceed with bindings ServiceNowSoap.
+Creating wsdl schema document for file:///C:/Users/che00379/Desktop/ServiceNowWSDL.wsdl.
+Parsing wsdl binding {http://www.service-now.com}ServiceNowSoap.
+Parsing wsdl binding input generateSessionLink.
+Parsing wsdl binding output generateSessionLink.
+Processing doc style for operation generateSessionLink.
+Populating WSDL schema ServiceNowWSDL.xsd.
+Creating file ServiceNowWSDL.xsd in the workspace.
+Creating file /ServiceNowWSDL/ServiceNowWSDL_InlineSchema1.xsd in the workspace.
+Copying source WSDL ServiceNowWSDL.wsdl to ServiceNowWSDL.wsdl.
+
+Elapsed time processing this message definition file: 1.189 seconds
+Number of warnings for this message definition file: 0
+
+
+Number of files processed: 1
+
+
