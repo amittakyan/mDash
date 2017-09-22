@@ -1,0 +1,1484 @@
+BROKER SCHEMA CommonHCP.Routines.ESQL
+DECLARE hl7 NAMESPACE 'urn:hl7-org:v2xml';
+DECLARE ReceiverMessageSet CONSTANT CHARACTER 'HL7v27DFDL';
+DECLARE ReceiverMessageType CONSTANT CHARACTER '{urn:hl7-org:v2xml}:HL7';
+DECLARE ReceiverMessageFormat CONSTANT CHARACTER '';
+DECLARE FieldSeparator CONSTANT CHARACTER '|';
+DECLARE ComponentSeparator EXTERNAL CHARACTER '^';
+DECLARE RepeatSeparator EXTERNAL CHARACTER '~';
+DECLARE EscapeSeparator EXTERNAL CHARACTER '\';
+DECLARE SubComponentSeparator EXTERNAL CHARACTER '&';
+DECLARE ServiceString CONSTANT CHARACTER '^~\&';
+DECLARE SendingApplication CONSTANT CHARACTER 'BROKER.RECEIVER';
+DECLARE SendingFacility CONSTANT CHARACTER ' ';
+DECLARE ReceivingApplication CONSTANT CHARACTER ' ';
+DECLARE ReceivingFacility CONSTANT CHARACTER ' ';
+DECLARE ProcessingID CONSTANT CHARACTER 'P';
+DECLARE DefaultMessageControlID CONSTANT CHARACTER '123456789';
+		
+		
+	CREATE FUNCTION GetUserDefinedConfigurableServiceProperty(IN configurableService CHAR, IN property CHAR)
+		RETURNS CHAR
+		LANGUAGE JAVA
+		EXTERNAL NAME "org.christus.interfaces.common.BrokerFacade.getUserDefinedConfigurableServiceProperty";
+		
+	CREATE FUNCTION QueueDepth(IN queueMgr CHAR, IN queueName CHAR)
+		RETURNS CHAR
+		LANGUAGE JAVA
+		EXTERNAL NAME "org.christus.interfaces.common.AdminQueue.queueDepth";
+		
+	CREATE FUNCTION EnableQueue(IN queueMgr CHAR, IN queueName CHAR)
+		RETURNS CHAR
+		LANGUAGE JAVA
+		EXTERNAL NAME "org.christus.interfaces.common.AdminQueue.queueEnable";		
+				
+	CREATE FUNCTION DisableQueue(IN queueMgr CHAR, IN queueName CHAR)
+		RETURNS CHAR
+		LANGUAGE JAVA
+		EXTERNAL NAME "org.christus.interfaces.common.AdminQueue.queueDisable";
+		
+
+	CREATE FUNCTION IsIPActive(IN host CHAR, IN port CHAR)
+		RETURNS CHAR
+		LANGUAGE JAVA
+		EXTERNAL NAME "org.christus.interfaces.common.TCPIPMonitor.isPortActive";
+		
+	-- The following procedure builds the MSH segment for ACK messages
+	-- Environment.PatternVariables and OutputRoot are passed as reference
+	CREATE PROCEDURE BuildACKMSH(IN MSHEnv REFERENCE, IN MSHFields REFERENCE) 
+	BEGIN
+	    -- Assign the FieldSeparator value from input message if it is present
+	    IF MSHEnv.Field1 IS NOT NULL THEN
+	        SET MSHFields.hl7:"MSH.1.FieldSeparator" = MSHEnv.Field1;
+	    ELSE
+	        SET MSHFields.hl7:"MSH.1.FieldSeparator" = FieldSeparator;
+	    END IF;
+	
+	    -- Assign the ServiceString value from input message if it is present
+		IF MSHEnv.Field2.ComponentSeparator IS NOT NULL THEN
+			SET MSHFields.hl7:"MSH.2.ServiceString".hl7:ComponentSeparator = MSHEnv.Field2.ComponentSeparator;
+		ELSE
+			SET MSHFields.hl7:"MSH.2.ServiceString".hl7:ComponentSeparator = ComponentSeparator;
+		END IF;
+		IF MSHEnv.Field2.RepeatSeparator IS NOT NULL THEN
+			SET MSHFields.hl7:"MSH.2.ServiceString".hl7:RepeatSeparator = MSHEnv.Field2.RepeatSeparator;
+		ELSE
+			SET MSHFields.hl7:"MSH.2.ServiceString".hl7:RepeatSeparator = RepeatSeparator;
+		END IF;
+		IF MSHEnv.Field2.EscapeSeparator IS NOT NULL THEN
+			SET MSHFields.hl7:"MSH.2.ServiceString".hl7:EscapeCharacter = MSHEnv.Field2.EscapeSeparator;
+		ELSE
+			SET MSHFields.hl7:"MSH.2.ServiceString".hl7:EscapeCharacter = EscapeSeparator;
+		END IF;
+		IF MSHEnv.Field2.SubComponentSeparator IS NOT NULL THEN
+			SET MSHFields.hl7:"MSH.2.ServiceString".hl7:SubComponentSeparator = MSHEnv.Field2.SubComponentSeparator;
+		ELSE
+			SET MSHFields.hl7:"MSH.2.ServiceString".hl7:SubComponentSeparator = SubComponentSeparator;
+		END IF;
+	
+	    -- Get the values from UDPs and assign to field 3 and 4
+	    SET MSHFields.hl7:"MSH.3.SendingApplication".hl7:"HD.1" = MessageFlowLabel;
+	    SET MSHFields.hl7:"MSH.4.SendingFacility".hl7:"HD.1" = ExecutionGroupLabel;
+	
+	    -- Assign the SendingApplication value from input message if it is present
+	    IF MSHEnv.Field3 IS NOT NULL THEN
+	        SET MSHFields.hl7:"MSH.5.ReceivingApplication".hl7:"HD.1" = MSHEnv.Field3;
+	    ELSE
+	        SET MSHFields.hl7:"MSH.5.ReceivingApplication".hl7:"HD.1" = ReceivingApplication;
+	    END IF;
+	
+	    -- Assign the SendingFacility value from input message if it is present
+	    IF MSHEnv.Field4 IS NOT NULL THEN
+	        SET MSHFields.hl7:"MSH.6.ReceivingFacility".hl7:"HD.1" = MSHEnv.Field4;
+	    ELSE
+	        SET MSHFields.hl7:"MSH.6.ReceivingFacility".hl7:"HD.1" = ReceivingFacility;
+	    END IF;
+	
+	    -- Compute date time in YYYYMMddHHmmss format  
+	    IF MSHEnv.Field12 IS NOT NULL THEN
+	    	DECLARE MsgVersion FLOAT;
+	    	SET MsgVersion = CAST(SUBSTRING(MSHEnv.Field12 FROM 1 FOR 3) AS FLOAT);
+	    	IF MsgVersion < 2.6 THEN
+	    		SET MSHFields.hl7:"MSH.7.DateTimeOfMessage".hl7:"TS.1" = CAST(CURRENT_TIMESTAMP AS CHARACTER FORMAT 'YYYYMMddHHmmss');
+	    	ELSE     		
+	    		SET MSHFields.hl7:"MSH.7.DateTimeOfMessage" = CAST(CURRENT_TIMESTAMP AS CHARACTER FORMAT 'YYYYMMddHHmmss');
+	    	END IF;
+	    ELSE
+	    	IF ReceiverMessageSet = 'HL7v27DFDL' OR ReceiverMessageSet = 'HL7v26DFDL' THEN
+	    		SET MSHFields.hl7:"MSH.7.DateTimeOfMessage" = CAST(CURRENT_TIMESTAMP AS CHARACTER FORMAT 'YYYYMMddHHmmss');
+	    	ELSE 
+	    		SET MSHFields.hl7:"MSH.7.DateTimeOfMessage".hl7:"TS.1" = CAST(CURRENT_TIMESTAMP AS CHARACTER FORMAT 'YYYYMMddHHmmss');
+	    	END IF;
+	    END IF;
+	    
+	    -- Type of message - ACK in case of acknowledgement
+	    SET MSHFields.hl7:"MSH.9.MessageType".hl7:"MSG.1" = 'ACK';
+		SET MSHFields.hl7:"MSH.9.MessageType".hl7:"MSG.2" = 'ACK';
+		SET MSHFields.hl7:"MSH.9.MessageType".hl7:"MSG.3" = 'ACK';
+	
+	    -- Get the 20 bytes length of UID and assign it as message control ID
+	    SET MSHFields.hl7:"MSH.10.MessageControlID" = GetUUID();
+	
+	    -- Assign the ProcessingID value from the input message
+	    IF MSHEnv.Field11 IS NOT NULL THEN
+	        SET MSHFields.hl7:"MSH.11.ProcessingID".hl7:"PT.1" = MSHEnv.Field11;
+	    ELSE
+	        SET MSHFields.hl7:"MSH.11.ProcessingID".hl7:"PT.1" = ProcessingID;
+	    END IF;
+	
+	    -- Assign the VersionID value from the input message - by default it is 2.2
+	    IF MSHEnv.Field12 IS NOT NULL THEN
+	        SET MSHFields.hl7:"MSH.12.VersionID".hl7:"VID.1" = MSHEnv.Field12;
+	    ELSE
+	        SET MSHFields.hl7:"MSH.12.VersionID".hl7:"VID.1" = '2.2';
+	    END IF;
+	END;
+	
+	-- Return unique identifier of 20 bytes length to be
+	-- used as message control ID in the ACK messages
+	CREATE FUNCTION GetUUID() RETURNS CHARACTER
+	BEGIN
+	    DECLARE UID CHARACTER;
+	    SET UID = REPLACE(UUIDASCHAR,'-');
+	    SET UID = RIGHT(UID,20);
+	    RETURN UID;
+	END;
+	
+	CREATE PROCEDURE BuildACKMSA(IN MSHEnv REFERENCE, IN MSHLocalEnv REFERENCE, IN MSAFields REFERENCE, IN AckCode CHARACTER, IN ErrorText CHARACTER) 
+	BEGIN
+	    -- Assign the ACK code sent from BuildACK or BuildNACK nodes
+	    SET MSAFields.hl7:"MSA.1.AcknowledgementCode" = AckCode;
+	
+	    -- Get the message control ID from the input message and assign it
+	    IF MSHEnv.Field10 IS NOT NULL THEN
+	        SET MSAFields.hl7:"MSA.2.MessageControlID" = MSHEnv.Field10;
+	    ELSEIF MSHLocalEnv.HL7.InputMSH.Field10 IS NOT NULL THEN
+	        SET MSAFields.hl7:"MSA.2.MessageControlID" = MSHLocalEnv.HL7.InputMSH.Field10;
+	    ELSE
+	        SET MSAFields.hl7:"MSA.2.MessageControlID" = DefaultMessageControlID;
+	    END IF;
+	
+	    -- Error text in case of ACK AE or ACK AR
+	    SET MSAFields.hl7:"MSA.3.TextMessage" = ErrorText;
+	
+	    -- Get the sequence number from input message if present
+	    IF MSHEnv.Field13 IS NOT NULL THEN
+	        SET MSAFields.hl7:"MSA.4.ExpectedSequenceNumber" = MSHEnv.Field13;
+	    END IF;
+	END;
+	
+	CREATE PROCEDURE GetLastExceptionDetail(IN InputTree REFERENCE, OUT MessageNumber INTEGER, OUT MessageText CHARACTER, OUT NodeLabel CHARACTER)
+    BEGIN
+        -- Create a reference to the first child of the exception list
+        DECLARE PtrException reference to InputTree.*[1];
+        -- Keep looping while the moves to the child of exception list work
+        WHILE LASTMOVE(PtrException) DO
+            -- Store the current values for the error number and text
+            IF PtrException.Number IS NOT NULL THEN
+                SET MessageNumber = PtrException.Number;
+                SET MessageText = PtrException.Text ||'||' ||PtrException.Insert[<].Text;
+                SET NodeLabel = PtrException.Label;
+            END IF;
+            -- Now move to the last child which should be the next exception list
+            MOVE PtrException LASTCHILD;
+        END WHILE;
+    END;
+	
+	CREATE PROCEDURE GetLastExceptionExpandedDetail(IN InputTree REFERENCE, OUT MessageNumber INTEGER, OUT MessageText CHARACTER, OUT NodeLabel CHARACTER)
+    BEGIN
+        -- Create a reference to the first child of the exception list
+        DECLARE PtrException reference to InputTree.*[1];
+        DECLARE insertPos INTEGER;
+        -- Keep looping while the moves to the child of exception list work
+        WHILE LASTMOVE(PtrException) DO
+            -- Store the current values for the error number and text
+            IF PtrException.Number IS NOT NULL THEN
+                SET MessageNumber = PtrException.Number;
+                SET insertPos = CARDINALITY(PtrException.Insert[]);
+                SET MessageText = '';
+                WHILE(insertPos > 0) DO
+                	IF(MessageText <> '') THEN
+	                	SET MessageText = MessageText || '->' ;
+            		END IF;
+	                SET MessageText = MessageText || PtrException.Insert[insertPos].Text;
+	                SET insertPos = insertPos - 1;
+	            END WHILE;
+	            SET MessageText = PtrException.Text || ' || ' ||MessageText;
+                SET NodeLabel = PtrException.Label;
+            END IF;
+            -- Now move to the last child which should be the next exception list
+            MOVE PtrException LASTCHILD;
+        END WHILE;
+    END;
+    
+    /*****************************
+    Taking the facility mnemonic as parameter 1, it uses the FacilityToRegion UDCS to look up the region mnemonic; 
+    if the faility is not found in the UDCS, it returns the value passed as the second parameter (DefaultReturnValue).
+    This function wraps an error handler around the Java call, so it should never throw an error
+    ******************************/
+    CREATE FUNCTION GetRegionFromFacility(IN Facility CHARACTER, IN DefaultReturnValue CHARACTER) RETURNS CHARACTER
+	BEGIN
+	    DECLARE Region CHARACTER;
+		BEGIN			
+			-- If Aanything happens in the call to Common.Routines.ESQL.GetUserDefinedConfigurableServiceProperty, do nothing
+			DECLARE CONTINUE HANDLER FOR  SQLSTATE LIKE '%'
+			BEGIN
+				SET Region = DefaultReturnValue;
+			END;
+			CALL CommonHCP.Routines.ESQL.GetUserDefinedConfigurableServiceProperty('FacilityToRegion', Facility) INTO Region;
+		END;
+	    RETURN Region;
+	END;
+		
+	 
+	CREATE FUNCTION GetValue (IN ref_ParentSegment REFERENCE, IN PathToGet CHARACTER) RETURNS CHARACTER
+	BEGIN
+		DECLARE retValue CHARACTER;
+		DECLARE workingOnField CHARACTER;
+		DECLARE tmpStr CHARACTER;
+		DECLARE bFound BOOLEAN TRUE;
+		DECLARE currentOccurance INTEGER;
+		
+		WHILE(PathToGet <> '' AND bFound) DO
+		
+			
+			IF (POSITION('\' IN PathToGet) > 0) THEN
+				SET workingOnField = SUBSTRING(PathToGet BEFORE '\');
+				SET PathToGet = SUBSTRING(PathToGet AFTER '\');
+			ELSE
+				SET workingOnField = PathToGet;
+				SET PathToGet = '';
+			END IF;
+			
+			SET tmpStr = SUBSTRING(workingOnField AFTER '[');
+			IF(tmpStr IS NOT NULL AND tmpStr <> '') THEN
+				SET currentOccurance = CAST(TRANSLATE(tmpStr, '[]') AS INTEGER);
+				SET workingOnField = SUBSTRING(workingOnField BEFORE '[');
+			ELSE
+				SET currentOccurance = 1;
+			END IF;
+			
+			
+			IF(FIELDNAME(ref_ParentSegment.hl7:{workingOnField}[currentOccurance]) IS NULL) THEN
+				SET bFound = FALSE;
+			ELSE
+				MOVE ref_ParentSegment TO ref_ParentSegment.hl7:{workingOnField}[currentOccurance];
+			END IF;
+			
+		END WHILE;
+		
+		IF(bFound)THEN
+			SET retValue = ref_ParentSegment;
+		END IF;
+		
+		RETURN retValue;
+	END;
+		
+
+	
+	CREATE PROCEDURE SetValue (IN ref_ParentSegment REFERENCE, IN PathToSet CHARACTER, IN Value CHARACTER)
+	BEGIN
+		DECLARE ref_ValueField REFERENCE to ref_ParentSegment;
+		CALL EnsureFieldExist (ref_ParentSegment, PathToSet, ref_ValueField);
+		SET ref_ValueField = Value;  
+	END; 
+	
+	CREATE PROCEDURE EnsureFieldExist (IN ref_ParentSegment REFERENCE, IN PathToInsert CHARACTER, OUT ref_Field REFERENCE) 
+	BEGIN
+		DECLARE workingOnField CHARACTER;
+		DECLARE remainingPathToInsert CHARACTER PathToInsert;
+		DECLARE tmpStr CHARACTER;
+		DECLARE occuranceToInsert INTEGER;
+		DECLARE currentOccurance INTEGER;
+		DECLARE ref_ChildField REFERENCE TO ref_ParentSegment;
+		
+		IF (POSITION('\' IN remainingPathToInsert) > 0) THEN
+			SET workingOnField = SUBSTRING(PathToInsert BEFORE '\');
+			SET remainingPathToInsert = SUBSTRING(remainingPathToInsert AFTER '\');
+		ELSE
+			SET workingOnField = PathToInsert;
+			SET remainingPathToInsert = '';
+		END IF;
+			
+		SET tmpStr = SUBSTRING(workingOnField AFTER '[');
+		IF(tmpStr IS NOT NULL AND tmpStr <> '') THEN
+			SET occuranceToInsert = CAST(TRANSLATE(tmpStr, '[]') AS INTEGER);
+			SET workingOnField = SUBSTRING(workingOnField BEFORE '[');
+		ELSE
+			SET occuranceToInsert = 1;
+		END IF;
+
+		IF(FIELDNAME(ref_ParentSegment.hl7:{workingOnField}) IS NULL) THEN --Field does not exist at all, so create first one
+			MOVE ref_ChildField TO ref_ParentSegment;
+			MOVE ref_ChildField FIRSTCHILD;
+			--Find position to insert new child
+			WHILE(LASTMOVE(ref_ChildField) AND GetOrdinal(FIELDNAME(ref_ChildField)) < GetOrdinal(workingOnField)) DO
+				MOVE ref_ChildField NEXTSIBLING;
+			END WHILE;
+			
+			IF(FIELDNAME(ref_ChildField) = FIELDNAME(ref_ParentSegment)) THEN  --If parent and child is the same, parent had no children, so create firat child
+				CREATE FIRSTCHILD OF ref_ChildField as ref_ChildField NAMESPACE hl7 NAME workingOnField;
+			ELSEIF(GetOrdinal(FIELDNAME(ref_ChildField)) < GetOrdinal(workingOnField)) THEN --It reached the end prior to
+				CREATE NEXTSIBLING OF ref_ChildField as ref_ChildField NAMESPACE hl7 NAME workingOnField;
+			ELSE
+				CREATE PREVIOUSSIBLING OF ref_ChildField as ref_ChildField NAMESPACE hl7 NAME workingOnField;
+			END IF;
+		END IF;
+		
+		MOVE ref_ChildField To ref_ParentSegment.hl7:{workingOnField}; -- Since first field exists here, move child to it 
+		SET currentOccurance = 1;
+		
+		WHILE(currentOccurance <= occuranceToInsert) DO
+			IF(FIELDNAME(ref_ParentSegment.hl7:{workingOnField}[currentOccurance]) IS NULL) THEN
+				CREATE NEXTSIBLING OF ref_ChildField as ref_ChildField NAMESPACE hl7 NAME workingOnField;
+			END IF;
+			MOVE ref_ChildField To ref_ParentSegment.hl7:{workingOnField}[currentOccurance]; -- Move child to currentOccurance since it might be the correct child 
+			SET currentOccurance = currentOccurance + 1;
+		END WHILE;
+			
+		IF(remainingPathToInsert <> '') THEN
+			CALL EnsureFieldExist(ref_ChildField, remainingPathToInsert, ref_Field);
+		ELSE
+			MOVE ref_Field TO ref_ChildField; 
+		END IF;
+		
+	END;
+	
+	-- This takes a reference to the first field in an HL7 segment, e.g. PID.1.SetIDPID, and it will update that reference to point to the sibling just previous to the FieldToInsert 
+	CREATE PROCEDURE GetPreviousSibling (INOUT ref_Segment REFERENCE, IN FieldToInsert CHARACTER)
+	BEGIN
+		DECLARE bPrevSegFound BOOLEAN FALSE;
+		DECLARE iFieldToInsertPos INTEGER;
+		DECLARE iSearchFieldPos INTEGER;
+		DECLARE tmpChar CHARACTER;
+		DECLARE ref_returnSegment REFERENCE TO ref_Segment;
+		
+		SET iFieldToInsertPos = GetOrdinal(FieldToInsert);
+		
+		WHILE(LASTMOVE(ref_Segment) AND NOT bPrevSegFound) DO
+		
+			IF(iFieldToInsertPos < GetOrdinal(FIELDNAME(ref_Segment))) THEN
+				SET bPrevSegFound = TRUE;
+			END IF;
+			
+			IF(NOT bPrevSegFound) THEN
+				MOVE ref_returnSegment TO ref_Segment; 
+				MOVE ref_Segment NEXTSIBLING;
+			ELSE
+				MOVE ref_Segment PREVIOUSSIBLING;
+			END IF;
+		END WHILE;
+		
+		IF(NOT bPrevSegFound) THEN
+			MOVE ref_Segment TO ref_returnSegment;
+		END IF;
+	END;
+	
+	-- This function returns the ordinal position of the field based on its name, e.g. if FieldName is 'PID.1.SetIDPID', it will return 1;	
+	CREATE FUNCTION GetOrdinal (IN FldName CHARACTER) RETURNS INTEGER
+	LANGUAGE ESQL
+	BEGIN
+		DECLARE tmpChar CHARACTER;
+		
+		SET tmpChar = SUBSTRING(FldName AFTER '.');  --Get anything after the first .
+		
+		IF(tmpChar IS NULL) THEN
+			SET tmpChar = FldName;
+		ELSEIF(POSITION('.' IN tmpChar) > 0) THEN
+			SET tmpChar = SUBSTRING(tmpChar BEFORE '.');
+		END IF;
+		
+		RETURN CAST(tmpChar AS INTEGER);
+	END;
+	
+	--Taking a reference to an anyHL7Segment or a child of it (e.g. PID), it will set all fields in the FieldSet parameter to NULL
+	CREATE PROCEDURE procClearFieldsInSet (IN refSegment REFERENCE, IN FieldSet CHARACTER)
+	BEGIN
+		
+		--Remove spaces in the provided list
+		--By enclosing the provided list in commas, all elements are enclosed in commas, which makes it easier later;
+		--  without it, there would have to be special cases for first, last and single elements
+		--  now, I can search for the current field (n) by searching for ',n,' because no matter where in the list n is, it has commas on both sides
+		--  leading, trailing and single elemts would not have had that otherwise
+		SET FieldSet = ',' || REPLACE(FieldSet, ' ', '') || ',';
+		
+		--Move to first child until we find the segment reference or we can't move firther
+		WHILE(LASTMOVE(refSegment) AND LENGTH(FIELDNAME(refSegment)) <> 3) DO
+			MOVE refSegment FIRSTCHILD;
+		END WHILE;
+		
+		--If we exited because the LEN was 3 above, we need to move to the first child of it
+		IF(LENGTH(FIELDNAME(refSegment)) = 3) THEN
+			MOVE refSegment FIRSTCHILD;
+		END IF;
+		
+		DECLARE ordinal CHARACTER;  --The ordinal of each field, i.e PID.3. is ordinal 3
+		
+		DECLARE refTmp REFERENCE to refSegment;
+		DECLARE needsMove BOOLEAN TRUE;
+		 
+		--Note that when a reference is set to NULL, it can't be moved, which is why the tmpReference is needed
+		WHILE(LASTMOVE(refSegment) AND FieldSet <> ',') DO
+			set ordinal = CAST(GetOrdinal(FIELDNAME(refSegment)) AS CHARACTER);
+			IF(POSITION(',' || ordinal || ',' IN FieldSet) > 0) THEN
+				MOVE refTmp TO refSegment;		--Save current reference to the tmpReference
+				
+				-- Try to improve performance by removing the field we are clearing; if all fields in the set has been handled, only a ',' will be left
+				--SET FieldSet = REPLACE(FieldSet, ',' || ordinal, '');  
+				
+				--ordinal 1 is a special case since it can't go to previous child			
+				IF(ordinal = '1') THEN
+					MOVE refTmp NEXTSIBLING;	--Move tmpReference to next sibling
+					SET needsMove = FALSE;
+				ELSE
+					MOVE refTmp PREVIOUSSIBLING;	--Move tmpReference to previous sibling
+					SET needsMove = TRUE;
+				END IF;
+				SET refSegment = NULL;			--Clear the intended reference
+				MOVE refSegment to refTmp;		--Set the original reference to the tmp
+			END IF;
+			IF(needsMove) THEN
+				MOVE refSegment NEXTSIBLING;
+			END IF;
+			SET needsMove = TRUE;
+		END WHILE;
+	END;
+	
+	--Prepares a special case for procClearFieldsInSet where it sets the FieldSet to all fields from RangeStart to RangeEnd (inclusive)
+	CREATE PROCEDURE procClearFieldsInRange (IN refSegment REFERENCE, IN RangeStart INTEGER, IN RangeEnd INTEGER)
+	BEGIN
+		--Just build the comma separated list with the numbers in the range, and pass it to procClearFieldsInSet
+		DECLARE rangeStr CHARACTER '';
+		
+		while(RangeStart <= RangeEnd) DO
+			IF(rangeStr <> '') THEN
+				SET rangeStr = rangeStr || ',';
+			END IF;
+			SET rangeStr = rangeStr || cast(RangeStart AS CHARACTER);
+			set RangeStart = RangeStart + 1;
+		END WHILE;
+		
+		CALL procClearFieldsInSet(refSegment, rangeStr);
+	END;
+	
+	--Prepares a special case for procClearFieldsInSet where it sets the FieldSet to all fields from RangeStart to 99 (inclusive)
+	CREATE PROCEDURE procClearFieldsToEnd (IN refSegment REFERENCE, IN RangeStart INTEGER)
+	BEGIN
+		--Just set upper range to 99, which is more than enough, and pass that to the procClearFieldsInSet
+		DECLARE RangeEnd INTEGER 99;
+		
+		CALL procClearFieldsInRange(refSegment, RangeStart, RangeEnd);
+	END;
+	
+	-------------------------------------------
+	DECLARE Level INTEGER 0;
+	
+	CREATE FUNCTION GetExceptionTreeAsString (IN refExceptionTree REFERENCE ) RETURNS CHARACTER
+	BEGIN
+		DECLARE treeString CHARACTER '';
+		
+		SET Level = Level + 1;
+		IF (Level > 1) THEN
+			SET treeString = '<BR>';
+		END IF;		
+		
+		SET treeString = treeString || REPLICATE('-', (Level-1)*3) || FIELDNAME(refExceptionTree) || ':' || COALESCE(CAST(FIELDVALUE(refExceptionTree) AS CHARACTER), '') ;
+		
+		DECLARE childCount INTEGER CARDINALITY(refExceptionTree.*[]);
+		DECLARE childPos INTEGER 1;
+		
+		WHILE (childPos <= childCount) DO
+			SET treeString = treeString || GetExceptionTreeAsString(refExceptionTree.[childPos]);
+			SET childPos = childPos + 1;
+		END WHILE;
+		
+		SET Level = Level - 1;
+		RETURN treeString;
+	END;
+	
+	
+		/*
+	* procSubFieldSearchPattern - This Procedure takes a reference and will search for 'SearchParam' character pattern 
+	* If it finds any matching pattern, it will return '1', else '-1'
+	* This Procedure can be applied to a Segment Field containing a maximum of 2 levels of SubFields(child elements).
+	* Eg: SearchParam = 'ABC' will return '1' for the following : 'ABCD' ,'AABC', '123ABC'
+	*
+	* Parameters:
+	* IN : REFERENCE refSegment - This the segment path that needs to be used
+	* IN : CHARACTER SearchParm - The value to be searched
+	* OUT: INTEGER Result - The value of result is -1 if the value does not exists or returns position in the field
+	*
+	*/
+	CREATE PROCEDURE procSubFieldSearchPattern(IN refSegment REFERENCE,IN SearchParm CHARACTER,OUT Result INTEGER)
+	BEGIN
+		MOVE refSegment FIRSTCHILD;
+		X: WHILE LASTMOVE(refSegment) DO
+            IF (EXISTS(refSegment.*[])) THEN
+                DECLARE tempSegment REFERENCE TO refSegment;
+                MOVE tempSegment FIRSTCHILD;
+                XX:WHILE LASTMOVE(tempSegment) DO
+                    IF tempSegment IS NOT NULL THEN
+						IF CONTAINS(tempSegment,SearchParm)  THEN
+        	           		SET Result = 1;
+							LEAVE X;
+						END IF;
+					END IF;
+                    MOVE tempSegment NEXTSIBLING;
+                END WHILE;
+		   ELSEIF CONTAINS(refSegment,SearchParm)  THEN
+                SET Result=1;
+					LEAVE X;
+		   ELSE
+				SET Result=-1;
+           END IF;
+           MOVE refSegment NEXTSIBLING;
+        END WHILE;
+    END;
+    
+    /*
+	* procSubFieldSearch - This Procedure takes a reference and will search for 'SearchParam' character Value 
+	* If it finds any matching value, it will return '1' else '-1'
+	* This Procedure can be applied to a Segment Field containing a maximum of 2 levels of SubFields (child elements).
+	* Note : The procedure searches for exact value and not a pattern 
+	* eg: SearchParam = 'ABC' then True : 'ABC' False : 'ABCD','AABC','123ABC'
+	*
+	* Parameters:
+	* IN : REFERENCE refSegment - This the segment path that needs to be used
+	* IN : CHARACTER SearchParm - The value to be searched
+	* OUT: INTEGER Result 		- The value of result is '-1' if the value does not exists or '1' if the value exists
+	*
+	*/ 
+    CREATE PROCEDURE procSubFieldSearch(IN refSegment REFERENCE,IN SearchParm CHARACTER,OUT Result INTEGER)
+	BEGIN
+		MOVE refSegment FIRSTCHILD;
+		X: WHILE LASTMOVE(refSegment) DO
+            IF (EXISTS(refSegment.*[])) THEN
+                DECLARE tempSegment REFERENCE TO refSegment;
+                MOVE tempSegment FIRSTCHILD;
+                XX:WHILE LASTMOVE(tempSegment) DO
+                    IF tempSegment IS NOT NULL THEN
+						IF tempSegment = SearchParm  THEN
+        	           	    SET Result=1;
+							LEAVE X;
+						END IF;
+					END IF;
+                    MOVE tempSegment NEXTSIBLING;
+                END WHILE;
+		    ELSEIF refSegment=SearchParm  THEN
+				SET Result=1;
+				LEAVE X;
+		    ELSE
+				SET Result=-1;
+            END IF;
+            MOVE refSegment NEXTSIBLING;
+		 END WHILE;
+     END;
+     
+     
+	----------------------------------------------------------------------------------
+    /*
+	* procReplaceChars - This Procedure takes a reference and will replace 'ToBeReplacedChar' characters with 'ReplacingChar' character.
+	* This Procedure can be applied to a field containing a maximum of 2 levels of child elements.
+	*
+	* Parameters:
+	* IN: REFERENCE refSegment - This the segment path that needs to be used
+	* IN: CHARACTER ToBeReplacedChar - The character in the segment path that needs to be replaced
+	* IN: CHARACTER ReplacingChar - The character in the segment path that needs to replace 'ToBeReplacedChar'
+	*
+	* Eg: Replace all '^' with spaces within a particular field in a HL7 segment with spaces.
+	*/
+	CREATE PROCEDURE procReplaceChars(IN refSegment REFERENCE,IN ToBeReplacedChar CHARACTER,IN ReplacingChar CHARACTER) BEGIN
+		MOVE refSegment FIRSTCHILD;
+		WHILE LASTMOVE(refSegment) DO
+			IF (EXISTS(refSegment.*[])) THEN
+				DECLARE tempSegment REFERENCE TO refSegment;
+				MOVE tempSegment FIRSTCHILD;
+				WHILE LASTMOVE(tempSegment) DO
+					SET tempSegment = REPLACE(tempSegment, ToBeReplacedChar, ReplacingChar);
+					MOVE tempSegment NEXTSIBLING;
+				END WHILE;
+			ELSE
+				SET refSegment = REPLACE(refSegment, ToBeReplacedChar, ReplacingChar);
+			END IF;
+			MOVE refSegment NEXTSIBLING;
+		END WHILE;
+	END;
+	-----------------------------------------------------------------------
+	
+	/*
+	* procMultiInstanceSplit - This Procedure takes the first parameter and splits it using the third parameter as the delimier
+	***                        The split values will be stored in Environment.Split[]  
+	*/
+	CREATE PROCEDURE procMultiInstanceSplit(IN S1 CHARACTER, IN Env REFERENCE, IN Delim1 CHARACTER)
+	BEGIN
+		DECLARE P1 INTEGER;
+		DECLARE Idx1 INTEGER 1;
+		DECLARE COUNT INTEGER 0;
+		SET Env.Split = NULL;
+		REPEAT
+			SET P1 = POSITION(Delim1 IN S1);
+			IF P1 = 0 THEN
+				SET Env.Split.Array[Idx1] = S1;
+			ELSE
+				SET Env.Split.Array[Idx1] = LEFT(S1, P1 - 1);
+				SET COUNT = COUNT + 1;
+				SET Env.Split1copy[COUNT] = Env.Split.Array[Idx1];
+				SET S1 = SUBSTRING(S1 FROM P1 + LENGTH(Delim1));
+				SET Idx1 = Idx1 + 1;
+			END IF;
+			UNTIL P1 = 0
+		END REPEAT;
+	END;
+	------------------------------------------------------------------------------
+	
+	CREATE FUNCTION MDM_PROVIDER_SEARCH(IN STORED_PROC CHARACTER, IN PARAM1 CHARACTER, IN PARAM2 CHARACTER, OUT RETURN_VALUE CHARACTER)
+	BEGIN
+		DECLARE RETURN_VALUE ROW;
+		DECLARE passthru_command CHARACTER;
+		
+		set passthru_command='EXEC  Database.{MDM_PROVIDER}.[dbo].[STORED_PROC] '||'"'||PARAM1||'"'||PARAM2||'"';
+		SET	RETURN_VALUE=PASSTHRU (passthru_command);
+		RETURN;
+	END;
+	
+	--------------------------------------------------------------------------------
+	DECLARE ORC2List SHARED ROW;
+	DECLARE OBR3List SHARED ROW;
+	DECLARE OBR4List SHARED ROW;
+	DECLARE OBR15List SHARED ROW;
+	DECLARE OBR18List SHARED ROW;
+		
+	/*******************************	
+    tpsMediLinkedResults - This procedure takes the entire InputRoot as Reference as input parameter. 
+    					 - This procedure will generate the messages as per the ORC:2.1 instance count. 
+    					 - This procedure will modify the contents of ORC:2.1, OBR:3.1, OBR:4, OBR:15.1 and OBR:18
+    *******************************/
+		
+    CREATE PROCEDURE tpsMediLinkedResults (IN InputRoot REFERENCE)
+    BEGIN
+	     DECLARE inputRef REFERENCE TO InputRoot.DFDL.hl7:HL7.hl7:anyHL7Segment;
+		 DECLARE "charORC:2","charOBR:3","charOBR:4","charOBR:15","charOBR:18" CHARACTER '';
+		 DECLARE intIndex INTEGER 1;
+		 DECLARE intORC2_Count INTEGER 1;
+		 DECLARE charTildeDelimiter CONSTANT CHARACTER '~';
+		 DECLARE Split ROW;
+		 DECLARE ipos INTEGER;
+		 DECLARE iIndex  INTEGER 1;
+		 DECLARE S1 CHARACTER '';
+		 DECLARE intORCanyhl7SegementOccurrance,intOBRanyhl7SegementOccurrance INTEGER 0;
+		 DECLARE intHL7SegementCounter INTEGER 0;
+		 DECLARE bFlag BOOLEAN FALSE;
+		  
+		 SET ORC2List = NULL;
+		 SET OBR3List = NULL;
+		 SET OBR4List = NULL;
+		 SET OBR15List = NULL;
+		 SET OBR18List = NULL;
+		
+		 DECLARE multipleORCflag CHARACTER 'FALSE';
+		
+		 X:WHILE LASTMOVE(inputRef) DO
+		 	SET intHL7SegementCounter = intHL7SegementCounter + 1;
+			
+			IF (FIELDNAME(inputRef.[1]) = 'ORC') THEN
+				SET intORCanyhl7SegementOccurrance = intHL7SegementCounter;
+				IF inputRef.hl7:ORC.hl7:"ORC.2.PlacerOrderNumber".[1] IS NOT NULL THEN
+					SET "charORC:2" = inputRef.hl7:ORC.hl7:"ORC.2.PlacerOrderNumber".hl7:"EI.1";
+					DECLARE charTildeDelimiter CONSTANT CHARACTER '~';
+					
+					IF CONTAINS ("charORC:2",'~') THEN
+						SET Split = NULL;
+						SET S1="charORC:2";
+						REPEAT
+							SET ipos = POSITION(charTildeDelimiter IN S1);
+							IF ipos = 0 THEN
+								SET Split.Array[iIndex] = S1;
+							ELSE
+								SET Split.Array[iIndex] = LEFT(S1, ipos - 1);
+								SET S1 = SUBSTRING(S1 FROM ipos + LENGTH(charTildeDelimiter));
+						        SET iIndex = iIndex + 1;
+							END IF;
+							UNTIL ipos = 0
+						END REPEAT;
+								
+						SET ORC2List."charORC:2"[] = Split.*[];
+								
+						SET intORC2_Count = CARDINALITY(ORC2List."charORC:2".*[]);
+						SET intORC2_Count = CARDINALITY(ORC2List.*[]);
+						SET multipleORCflag = 'TRUE';
+					ELSE
+						SET bFlag = TRUE;
+						PROPAGATE TO TERMINAL 'out' DELETE NONE;  --No Instances
+						LEAVE X;					         
+			        END IF;
+			     END IF;
+	        ELSEIF (FIELDNAME(inputRef.[1]) = 'OBR') THEN
+	        	SET intOBRanyhl7SegementOccurrance = intHL7SegementCounter;
+	        	--if input contains multi-instances of ORC, store the values of OBR:3, OBR:4, OBR:15 and OBR:18 in arrays
+	        	IF (multipleORCflag = 'TRUE') THEN
+					SET "charOBR:3" = inputRef.hl7:OBR.hl7:"OBR.3.FillerOrderNumber".hl7:"EI.1";
+					IF "charOBR:3" IS NOT NULL THEN
+						IF CONTAINS ("charOBR:3",'~') THEN
+							SET iIndex= 1;
+							SET S1 = '';
+							SET Split = NULL;
+							SET S1 = "charOBR:3";
+							REPEAT
+								SET ipos = POSITION(charTildeDelimiter IN S1);
+								IF ipos = 0 THEN
+									SET Split.Array[iIndex] = S1;
+								ELSE
+								    SET Split.Array[iIndex] = LEFT(S1, ipos - 1);
+									SET S1 = SUBSTRING(S1 FROM ipos + LENGTH(charTildeDelimiter));
+						            SET iIndex = iIndex + 1;
+								END IF;
+								UNTIL ipos = 0
+							END REPEAT;
+						  	SET OBR3List."charOBR:3"[] = Split.[];
+						ELSE
+							SET OBR3List."charOBR:3"[1] = "charOBR:3";
+						END IF;
+					END IF;
+					
+                    DECLARE bBitStream BLOB ASBITSTREAM (inputRef.hl7:OBR.hl7:"OBR.4.UniversalServiceIdentifier", InputRoot.Properties.CodedCharSetId, InputRoot.Properties.Encoding); 
+				    SET "charOBR:4" = CAST ( bBitStream AS CHARACTER CCSID 819); --cast blob into character
+					
+					IF "charOBR:4" IS NOT NULL THEN
+						IF CONTAINS ("charOBR:4",'~') THEN
+						    SET iIndex= 1;
+							SET S1 = '';
+							SET Split = NULL;
+							SET S1="charOBR:4";
+							REPEAT
+								SET ipos = POSITION(charTildeDelimiter IN S1);
+								IF ipos = 0 THEN
+									SET Split.Array[iIndex] = S1;
+								ELSE
+								    SET Split.Array[iIndex] = LEFT(S1, ipos - 1);
+									SET S1 = SUBSTRING(S1 FROM ipos + LENGTH(charTildeDelimiter));
+					                SET iIndex = iIndex + 1;
+								END IF;
+								UNTIL ipos = 0
+							END REPEAT;
+						  	SET OBR4List."charOBR:4"[]  = Split.[];
+						ELSE
+							SET OBR4List."charOBR:4"[1]  = "charOBR:4";
+						END IF;
+					END IF;
+					
+                    SET "charOBR:15" = inputRef.hl7:OBR.hl7:"OBR.15.SpecimenSource".hl7:"SPS.1".hl7:"CWE.1";
+                    
+                    IF "charOBR:15" IS NOT NULL THEN
+                    	IF CONTAINS ("charOBR:15",'~') THEN
+							SET iIndex= 1;
+							SET S1 = '';
+							SET Split = NULL;
+							SET S1="charOBR:15";
+							REPEAT
+								SET ipos = POSITION(charTildeDelimiter IN S1);
+								IF ipos = 0 THEN
+									SET Split.Array[iIndex] = S1;
+								ELSE
+								    SET Split.Array[iIndex] = LEFT(S1, ipos - 1);
+									SET S1 = SUBSTRING(S1 FROM ipos + LENGTH(charTildeDelimiter));
+									SET iIndex = iIndex + 1;
+								END IF;
+								UNTIL ipos = 0
+							END REPEAT;
+						  	SET OBR15List."charOBR:15"[]  = Split.[];
+						ELSE
+	                    	SET OBR15List."charOBR:15"[1]  = "charOBR:15";
+	                    END IF;                    
+					END IF;
+                   
+					SET "charOBR:18" = inputRef.hl7:OBR.hl7:"OBR.18.PlacerField1";
+					IF "charOBR:18" IS NOT NULL THEN
+						IF CONTAINS ("charOBR:18",'~') THEN
+						    SET iIndex= 1;
+							SET S1 = '';
+							SET Split = NULL;
+							SET S1="charOBR:18";
+							REPEAT
+								SET ipos = POSITION(charTildeDelimiter IN S1);
+								IF ipos = 0 THEN
+									SET Split.Array[iIndex] = S1;
+								ELSE
+									SET Split.Array[iIndex] = LEFT(S1, ipos - 1);
+									SET S1 = SUBSTRING(S1 FROM ipos + LENGTH(charTildeDelimiter));
+									SET iIndex = iIndex + 1;
+								END IF;
+								UNTIL ipos = 0
+							END REPEAT;
+						  	SET OBR18List."charOBR:18"[]   = Split.[];
+						ELSE
+							SET OBR18List."charOBR:18"[1]   = "charOBR:18";
+						END IF;
+					END IF;
+				END IF;
+					
+				DECLARE "charORC:2","charOBR:3","charOBR:4","charOBR:15","charOBR:18" CHARACTER '';
+		        DECLARE intOccurence INTEGER 0;
+				DECLARE intIndex INTEGER 1;
+				
+				IF intORC2_Count > 1 THEN
+					WHILE intIndex <= intORC2_Count DO
+						SET intOccurence=intIndex;
+						--DECLARE inputRef REFERENCE TO InputRoot.DFDL.hl7:HL7.hl7:anyHL7Segment;
+						DECLARE inputRef REFERENCE TO InputRoot.DFDL.hl7:HL7;
+							
+					    SET inputRef.hl7:anyHL7Segment[intORCanyhl7SegementOccurrance].hl7:ORC.hl7:"ORC.2.PlacerOrderNumber".hl7:"EI.1"=ORC2List."charORC:2"[intOccurence];
+						CALL CommonHCP.Routines.ESQL.SetValue(inputRef.hl7:anyHL7Segment[intOBRanyhl7SegementOccurrance], 'OBR\OBR.3.FillerOrderNumber\EI.1',OBR3List."charOBR:3"[intOccurence]);
+								
+						CALL CommonHCP.Routines.ESQL.procClearFieldsInSet(inputRef.hl7:anyHL7Segment[intOBRanyhl7SegementOccurrance],'4'); -- NULL out all fields of OBR.4
+								
+						IF CONTAINS(OBR4List."charOBR:4"[intOccurence],'^') THEN
+							CALL CommonHCP.Routines.ESQL.SetValue(inputRef.hl7:anyHL7Segment[intOBRanyhl7SegementOccurrance], 'OBR\OBR.4.UniversalServiceIdentifier\CWE.1', SUBSTRING (OBR4List."charOBR:4"[intOccurence] BEFORE '^'));
+						ELSE
+							CALL CommonHCP.Routines.ESQL.SetValue(inputRef.hl7:anyHL7Segment[intOBRanyhl7SegementOccurrance], 'OBR\OBR.4.UniversalServiceIdentifier\CWE.1', OBR4List."charOBR:4"[intOccurence]);
+						END IF;
+								
+						IF (CONTAINS(OBR4List."charOBR:4"[intOccurence], '^')) THEN
+							SET OBR4List."charOBR:4"[intOccurence] = SUBSTRING (OBR4List."charOBR:4"[intOccurence] AFTER '^');
+							IF (CONTAINS(OBR4List."charOBR:4"[intOccurence], '^')) THEN
+								CALL CommonHCP.Routines.ESQL.SetValue(inputRef.hl7:anyHL7Segment[intOBRanyhl7SegementOccurrance], 'OBR\OBR.4.UniversalServiceIdentifier\CWE.2', SUBSTRING (OBR4List."charOBR:4"[intOccurence] BEFORE '^'));
+								CALL CommonHCP.Routines.ESQL.SetValue(inputRef.hl7:anyHL7Segment[intOBRanyhl7SegementOccurrance], 'OBR\OBR.4.UniversalServiceIdentifier\CWE.3', SUBSTRING (OBR4List."charOBR:4"[intOccurence] AFTER '^'));
+							ELSE
+								CALL CommonHCP.Routines.ESQL.SetValue(inputRef.hl7:anyHL7Segment[intOBRanyhl7SegementOccurrance], 'OBR\OBR.4.UniversalServiceIdentifier\CWE.2', OBR4List."charOBR:4"[intOccurence] );
+							END IF;		
+						ELSE
+							SET inputRef.hl7:anyHL7Segment[intOBRanyhl7SegementOccurrance].hl7:OBR.hl7:"OBR.4.UniversalServiceIdentifier".hl7:"CWE.2" = NULL;
+						END IF;	
+							   
+						CALL CommonHCP.Routines.ESQL.SetValue(inputRef.hl7:anyHL7Segment[intOBRanyhl7SegementOccurrance], 'OBR\OBR.15.SpecimenSource\SPS.1\CWE.1',OBR15List."charOBR:15"[intOccurence]);
+						CALL CommonHCP.Routines.ESQL.SetValue(inputRef.hl7:anyHL7Segment[intOBRanyhl7SegementOccurrance], 'OBR\OBR.18.PlacerField1',OBR18List."charOBR:18"[intOccurence]);
+						SET bFlag=TRUE;
+						PROPAGATE TO TERMINAL 'out' DELETE NONE;
+							  
+						SET intIndex = intIndex + 1;
+				    END WHILE;
+				END IF;
+		        LEAVE X;
+	    	END IF;
+	        MOVE inputRef NEXTSIBLING;
+        END WHILE X;
+        
+        IF bFlag = FALSE THEN
+            PROPAGATE; --if no ORC or OBR segment found
+        END IF;
+    END;
+	
+	/***** End of tpsMediLinkedResults **********/
+	
+	
+	/*******************************	
+    tpsEntrprsPacs - This procedure takes the entire InputRoot as Reference as input parameter 1 
+    			   - It takes Region Name as input parameter 2
+    			   - It takes InterfaceID as input parameter 3 (Applicable if the interface uses a Global Varibles)
+    			   - It takes MessageType as input parameter 4
+    			   - This procedure's logic is argument and message type driven
+    *******************************/
+    	
+    DECLARE CACHETABLE SHARED ROW;
+    
+    CREATE PROCEDURE tpsEntrprsPacs (IN InputRoot REFERENCE,IN Region CHARACTER,IN INTERFACE_ID CHARACTER,IN MsgType CHARACTER) RETURNS CHARACTER
+    	BEGIN
+        DECLARE MSGTYPE CHARACTER UPPER(MsgType);
+        DECLARE gOBR3 CHARACTER '';
+        DECLARE ExcludeMessageReason CHARACTER ''; 
+        SET CACHETABLE = NULL;
+        	
+        DECLARE inMshRef REFERENCE TO InputRoot.DFDL.hl7:HL7.hl7:MSH;
+        	
+        IF MSGTYPE ='ADT' THEN
+        	DECLARE charMessageEvent CHARACTER inMshRef.hl7:"MSH.9.MessageType".hl7:"MSG.2";
+        	--Discard the entire message other than A02, A03, A04, A06, A07, A08, A11, A12, A13, A28, A34, and A40.
+        	IF charMessageEvent NOT IN ('A02','A03','A04','A06','A07','A08','A11','A12','A13','A28','A34','A40') THEN
+        	   	SET ExcludeMessageReason = 'Invalid value of MSH.9.2';
+        	   	RETURN ExcludeMessageReason; 
+         	END IF;
+         
+	        IF charMessageEvent='A04' THEN
+	           	SET inMshRef.hl7:"MSH.9.MessageType".hl7:"MSG.2" = 'A08';
+	        END IF;
+        END IF;
+        	
+        DECLARE inputRef REFERENCE TO InputRoot.DFDL.hl7:HL7.hl7:anyHL7Segment;
+        	
+        DECLARE TEMPCACHE ROW; --Used for loading ESQL cache
+        DECLARE FlowName CHARACTER MessageFlowLabel;
+        	
+        DECLARE "charOBR:3.1","charORC:1","charOBR:4.1","charOBR:4.2","charOBR:4.1_4.2" CHARACTER '';
+        DECLARE RegionSendToPacsResult,RegionPACSMod1Result CHARACTER '';
+        DECLARE "charOBR:3.1_b" CHARACTER '';
+        DECLARE "charPV1:3.1" CHARACTER '';
+        DECLARE charPIDFacilityID CHARACTER '';
+        DECLARE charMod1,charMod2 CHARACTER '';
+        DECLARE charPIDFlag CHARACTER 'FALSE';
+        
+        X:WHILE LASTMOVE(inputRef) DO
+			IF (FIELDNAME(inputRef.[1]) = 'ORC') THEN
+				SET "charORC:1" = inputRef.hl7:ORC.hl7:"ORC.1.OrderControl";
+			 	
+			 	IF UPPER(Region)='ADT' THEN
+			 		PROPAGATE;
+			 		LEAVE X;
+			 	END IF;
+			ELSEIF (FIELDNAME(inputRef.[1]) = 'OBR') THEN
+			 	SET "charOBR:3.1" = inputRef.hl7:OBR.hl7:"OBR.3.FillerOrderNumber".hl7:"EI.1";
+			 		 	
+			 	IF UPPER(MSGTYPE) = 'ORM' THEN
+			 		IF ("charOBR:3.1" = '') THEN
+			 			SET "charOBR:3.1" = NULL;
+			 		END IF;	
+			 		
+			 		SET gOBR3 = THE(SELECT ITEM TRIM(GV.GLOBAL_VAR) FROM Database.dbo.GlobalVariable AS GV WHERE GV.INTERFACE_ID = INTERFACE_ID);
+			 	    
+			 	   IF ("charORC:1" = 'CA' AND (gOBR3 = "charOBR:3.1")) THEN
+						SET gOBR3 = NULL; --Reset Global Variable to NULL
+						UPDATE Database.dbo.GlobalVariable AS GV SET GLOBAL_VAR = NULL WHERE GV.INTERFACE_ID = INTERFACE_ID; --Reset Global Variable to NULL
+						SET ExcludeMessageReason='ORC.1 = "CA" and gOBR3 is equal to OBR.3.1';
+						RETURN ExcludeMessageReason;
+			 	   ELSEIF (("charORC:1" = 'CA') AND (gOBR3 IS NULL) AND ("charOBR:3.1" IS NULL)) THEN
+			 	   		SET gOBR3 = NULL; --Reset Global Variable to NULL
+						UPDATE Database.dbo.GlobalVariable AS GV SET GLOBAL_VAR = NULL WHERE GV.INTERFACE_ID = INTERFACE_ID; --Reset Global Variable to NULL
+						SET ExcludeMessageReason='ORC.1 = "CA" and gOBR3 is equal to OBR.3.1';
+						RETURN ExcludeMessageReason;
+				   END IF;
+					
+					SET inMshRef.hl7:"MSH.9.MessageType".hl7:"MSG.1" = 'ORM';
+					SET inMshRef.hl7:"MSH.9.MessageType".hl7:"MSG.2" = 'O01';
+			  
+					IF ("charORC:1" = 'XO') THEN
+						SET gOBR3 = "charOBR:3.1";
+						UPDATE Database.dbo.GlobalVariable AS GV SET GLOBAL_VAR = gOBR3 WHERE GV.INTERFACE_ID = INTERFACE_ID;
+					END IF;
+			 	END IF;
+			 	  
+			 	IF UPPER(MSGTYPE) = 'ORU' THEN
+			 	  	IF EXISTS(inputRef.hl7:OBR.hl7:"OBR.32.PrincipalResultInterpreter".*[]) THEN
+						CALL procReplaceChars(inputRef.hl7:OBR.hl7:"OBR.32.PrincipalResultInterpreter",',','^');
+						CALL procReplaceChars(inputRef.hl7:OBR.hl7:"OBR.32.PrincipalResultInterpreter",' ','^');
+					END IF;
+					SET inMshRef.hl7:"MSH.9.MessageType".hl7:"MSG.1" = 'ORU';
+					SET inMshRef.hl7:"MSH.9.MessageType".hl7:"MSG.2" = 'R01';
+			 	END IF;
+				
+				IF EXISTS(inputRef.hl7:OBR.hl7:"OBR.16.OrderingProvider"[]) THEN
+			 	    CALL procReplaceChars(inputRef.hl7:OBR.hl7:"OBR.16.OrderingProvider",',','^');
+					CALL procReplaceChars(inputRef.hl7:OBR.hl7:"OBR.16.OrderingProvider",' ','^');
+				END IF;
+					
+				SET "charOBR:4.1" = inputRef.hl7:OBR.hl7:"OBR.4.UniversalServiceIdentifier".hl7:"CWE.1";
+				SET "charOBR:4.2" = inputRef.hl7:OBR.hl7:"OBR.4.UniversalServiceIdentifier".hl7:"CWE.2";
+				SET "charOBR:4.1_4.2" = "charOBR:4.1"|| '|' || "charOBR:4.2";
+					
+				DECLARE SendToPACSTable CHARACTER LOWER(Region)||'SendToPacs';
+				-- Applicable only for ALTX
+				IF (LOWER(Region) = 'altx') THEN
+					SET SendToPACSTable = 'altSendToPacs';
+					
+				--Applicable only for Interface #291 from Cloverleaf Migration Project
+				ELSEIF UPPER(Region)='SWLA-SWP-SQ' THEN
+					SET SendToPACSTable='swlaSendToSpeechQ';
+								
+				--Applicable only for Interface #291 from Cloverleaf Migration Project
+				ELSEIF INTERFACE_ID = 'SWLA MTPACS ORM TO SPEECHQ' THEN 
+					SET SendToPACSTable='swlaSendToSpeechQ';	
+				END IF;
+					
+				--Perform lookup in "Region"SendToPACS table using the concatenated value of OBR:4.1|OBR:4.2
+				SET TEMPCACHE.{SendToPACSTable}[] = PASSTHRU('SELECT * FROM dbo.'||SendToPACSTable||'');
+				--Store in ESQL Cache
+				FOR cacheLine AS TEMPCACHE.{SendToPACSTable}[] DO
+					CREATE LASTCHILD OF CACHETABLE.{SendToPACSTable} NAME cacheLine.IN VALUE cacheLine.OUT;
+				END FOR;
+				--Clear TempCache
+				SET TEMPCACHE = NULL;
+					
+				IF ("charOBR:4.1_4.2" IS NOT NULL) THEN
+					SET RegionSendToPacsResult = CACHETABLE.{SendToPACSTable}.{"charOBR:4.1_4.2"};
+				END IF;
+					
+				--Applicable only for Interface #291 from Cloverleaf Migration Project
+				IF UPPER(Region)='SWLA-SWP-SQ' THEN
+					SET Region='SWLA';
+				END IF;
+				
+				IF RegionSendToPacsResult='' OR RegionSendToPacsResult IS NULL THEN
+				   SET RegionSendToPacsResult='Y';
+				END IF;
+					
+				IF (RegionSendToPacsResult = 'N') THEN
+					SET ExcludeMessageReason='The result from '||LOWER(Region)||'SendToPacs value is N.';
+					RETURN ExcludeMessageReason;
+				ELSE	
+				    IF ("charOBR:4.1" IS NOT NULL) OR ("charOBR:4.1" ='') THEN
+				    	IF UPPER(Region) = 'NLA' THEN
+				    		BEGIN
+               				  	DECLARE CONTINUE HANDLER FOR SQLSTATE LIKE'%' BEGIN END;   -- To handle if configurable does not hold the key
+							  	CALL CommonHCP.Routines.ESQL.GetUserDefinedConfigurableServiceProperty( 'NLAPACSMod1',"charOBR:4.1") INTO RegionPACSMod1Result;
+               				 END;
+				    	ELSEIF UPPER(Region) = 'ALTX' THEN
+				    		BEGIN
+               				   DECLARE CONTINUE HANDLER FOR SQLSTATE LIKE'%' BEGIN END;   -- To handle if configurable doesnot hold the key
+							   CALL CommonHCP.Routines.ESQL.GetUserDefinedConfigurableServiceProperty( 'altPacsMod1',"charOBR:4.1") INTO RegionPACSMod1Result;
+               				END;	
+				    	ELSE
+						    BEGIN
+               				   DECLARE CONTINUE HANDLER FOR SQLSTATE LIKE'%' BEGIN END;   -- To handle if configurable doesnot hold the key
+							   CALL CommonHCP.Routines.ESQL.GetUserDefinedConfigurableServiceProperty( ''||LOWER(Region)||'PacsMod1',"charOBR:4.1") INTO RegionPACSMod1Result;
+               				END;
+						 END IF;
+				    ELSE
+				    	SET ExcludeMessageReason='OBR.4.1 is NULL';
+					    RETURN ExcludeMessageReason;		
+					END IF;
+						
+					IF (RegionPACSMod1Result = '' OR RegionPACSMod1Result IS NULL) THEN
+						SET ExcludeMessageReason='No hit from '||LOWER(Region)||'PacsMod1 for '|| "charOBR:4.1" ||'.';
+					    RETURN ExcludeMessageReason;
+					END IF;
+				END IF;
+				
+					
+				DECLARE PacsMod1Mod2Table CHARACTER LOWER(Region)||'PacsMod1Mod2';
+				--Applicable only for ALTX
+				IF (LOWER(Region) = 'altx') THEN
+					SET PacsMod1Mod2Table = 'altPacsMod1Mod2';
+				END IF;
+					 
+				--Perform another table lookup using the table {Region}PacsMod1Mod2.tbl using OBR4.1|OBR4.2 
+				SET TEMPCACHE.{PacsMod1Mod2Table}[] = PASSTHRU('SELECT * FROM dbo.'||PacsMod1Mod2Table||'');
+				FOR cacheLine AS TEMPCACHE.{PacsMod1Mod2Table}[] DO
+					CREATE LASTCHILD OF CACHETABLE.{PacsMod1Mod2Table} NAME cacheLine.IN VALUE cacheLine.OUT;
+				END FOR;
+				--Clear TempCache
+				SET TEMPCACHE = NULL;
+						
+				DECLARE RegionPacsMod1Mod2Result CHARACTER;
+					
+				IF ("charOBR:4.1_4.2" IS NOT NULL) THEN
+					SET RegionPacsMod1Mod2Result = CACHETABLE.{PacsMod1Mod2Table}.{"charOBR:4.1_4.2"};
+				END IF;
+											
+				IF (RegionPacsMod1Mod2Result IS NOT NULL) THEN
+					IF CONTAINS(RegionPacsMod1Mod2Result, '|') THEN
+						SET charMod1 = SUBSTRING(RegionPacsMod1Mod2Result BEFORE '|');
+						SET charMod2 = SUBSTRING(RegionPacsMod1Mod2Result AFTER '|');
+						CALL CommonHCP.Routines.ESQL.SetValue(inputRef,'OBR\OBR.19.PlacerField2',SUBSTRING(RegionPacsMod1Mod2Result BEFORE '|'));
+					ELSE
+						SET charMod1 = RegionPacsMod1Mod2Result;
+						SET charMod2 = '';
+						CALL CommonHCP.Routines.ESQL.SetValue(inputRef,'OBR\OBR.19.PlacerField2',RegionPacsMod1Mod2Result);
+					END IF;
+				ELSE
+					CALL CommonHCP.Routines.ESQL.SetValue(inputRef,'OBR\OBR.19.PlacerField2', RegionPACSMod1Result);
+				END IF;
+					
+				SET "charOBR:3.1"   = inputRef.hl7:OBR.hl7:"OBR.3.FillerOrderNumber".hl7:"EI.1";
+				SET "charOBR:3.1_b" = SUBSTRING("charOBR:3.1" AFTER '-');
+				CALL CommonHCP.Routines.ESQL.SetValue(inputRef,'OBR\OBR.3.FillerOrderNumber\EI.1', (SUBSTRING("charOBR:3.1" BEFORE '-')) ||'-'||(CAST(CAST("charOBR:3.1_b" AS INTEGER) AS CHARACTER FORMAT '0000000')));
+					
+				IF UPPER(Region)='SRH' THEN
+					SET "charOBR:3.1" = inputRef.hl7:OBR.hl7:"OBR.3.FillerOrderNumber".hl7:"EI.1";
+			        IF "charOBR:4.1" = 'NI' THEN		            	
+			          	CALL CommonHCP.Routines.ESQL.SetValue(inputRef,'OBR\OBR.3.FillerOrderNumber\EI.1','NI'|| "charOBR:3.1" );
+			        END IF;
+			            
+			        IF "charOBR:4.1" = 'CARD' THEN		            	
+			           	CALL CommonHCP.Routines.ESQL.SetValue(inputRef,'OBR\OBR.3.FillerOrderNumber\EI.1','CARD'|| "charOBR:3.1" );
+			        END IF;
+				END IF;
+						
+				PROPAGATE TO TERMINAL 'out' DELETE NONE;
+		           
+        		-- For sending a second message
+    			IF charPIDFlag = 'TRUE' AND charMod2 <>'' THEN
+    			 	DECLARE outputRef REFERENCE TO InputRoot.DFDL.hl7:HL7.hl7:anyHL7Segment;
+					Y:WHILE LASTMOVE(outputRef) DO
+						IF (FIELDNAME(outputRef.[1]) = 'OBR') THEN
+							-- OBR.3 - Append with 'M'
+							CALL CommonHCP.Routines.ESQL.SetValue (outputRef, 'OBR\OBR.3.FillerOrderNumber\EI.1', outputRef.hl7:OBR.hl7:"OBR.3.FillerOrderNumber".hl7:"EI.1" ||'M');
+							CALL CommonHCP.Routines.ESQL.SetValue(outputRef,'OBR\OBR.19.PlacerField2', charMod2);
+								
+							PROPAGATE;
+							LEAVE Y;
+						END IF;
+						MOVE outputRef NEXTSIBLING;
+				    END WHILE Y;
+				END IF;
+				LEAVE X;
+					
+			 ELSEIF (FIELDNAME(inputRef.[1]) = 'PID') THEN
+			 	SET charPIDFacilityID = LEFT(inputRef.hl7:PID.hl7:"PID.3.PatientIdentifierList".hl7:"CX.1",2);
+				SET charPIDFlag = 'FALSEFLAG';
+				
+				IF inputRef.hl7:PID.hl7:"PID.3.PatientIdentifierList".hl7:"CX.1" IS NULL THEN
+					SET ExcludeMessageReason='PID.3 is NULL.';
+					RETURN ExcludeMessageReason;
+				END IF;
+				
+			    IF Region IN ('NLA','SRH','SETX','SPN','SWLA-SWP-SQ') THEN
+		           	 IF (charPIDFacilityID IN ('EM','GM','HM','MB','MC','MT','MF','MK','MN','MD','ML','ME','MP','MH','MG','MI','MO','MJ','MX','MM','MQ','MR','MS','MV','MW','MY','MZ'))THEN
+						 SET charPIDFlag = 'TRUE';
+			       	 ELSE
+			       	 	 SET ExcludeMessageReason='PID.3 does not start with a valid value.';
+					     RETURN ExcludeMessageReason;
+			       	 END IF;		           	
+			    ELSEIF Region = 'CLA' THEN
+			  	     IF (charPIDFacilityID IN ('EM','MB','MC','MT','MF','MK','MN','MD','ML','ME','MP','MH','MG','MI','MO','MJ','MX','MM')) THEN
+			       	  	 SET charPIDFlag = 'TRUE';
+			       	 ELSE
+			       		 SET ExcludeMessageReason='PID.3 does not start with a valid value.';
+					     RETURN ExcludeMessageReason;
+			       	 END IF;
+			    ELSEIF Region = 'ALTX' THEN
+			    	 IF (charPIDFacilityID IN ('AL','EM','MB','MC')) THEN
+						  SET charPIDFlag = 'TRUE';
+			      	 ELSE
+			       		  SET ExcludeMessageReason='PID.3 does not start with a valid value.';
+						  RETURN ExcludeMessageReason;
+			         END IF;
+		        ELSEIF Region = 'SWLA' THEN
+			          IF (charPIDFacilityID = 'ML') THEN
+			        	  SET charPIDFlag = 'TRUE';
+			          ELSE
+			              SET ExcludeMessageReason='PID.3 does not start with ML.';
+						  RETURN ExcludeMessageReason;
+			          END IF;
+				  END IF;
+			
+			ELSEIF (FIELDNAME(inputRef.[1]) = 'PV1') THEN
+				
+				SET "charPV1:3.1" = inputRef.hl7:PV1.hl7:"PV1.3.AssignedPatientLocation".hl7:"PL.1".hl7:"HD.1";
+				---replace the value of PV1.3 with the component following the dot.
+				IF (CONTAINS ("charPV1:3.1",'.')) THEN
+					CALL CommonHCP.Routines.ESQL.SetValue(inputRef,'PV1\PV1.3.AssignedPatientLocation\PL.1\HD.1',SUBSTRING("charPV1:3.1" AFTER '.'));
+				ELSE
+					IF UPPER(Region) IN ('ALTX','SWLA','CLA','SWLA-SWP-SQ') THEN
+						CALL CommonHCP.Routines.ESQL.SetValue(inputRef,'PV1\PV1.3.AssignedPatientLocation\PL.1\HD.1',NULL);
+					END IF;
+				END IF;
+				
+				IF UPPER(MSGTYPE) = 'ADT' THEN
+					PROPAGATE;
+					LEAVE X;
+				END IF;
+			END IF;
+			MOVE inputRef NEXTSIBLING;
+        END WHILE X;
+        RETURN '';	
+	END;
+	
+	/***** End of tpsEntrprsPacs **********/
+    
+    
+    /*******************************	
+    emrIdConversionNew - This procedure takes PID segment as reference as input parameter 1 
+    				   - It takes Region as input parameter 2 
+    *******************************/
+    CREATE PROCEDURE emrIdConversionNew(IN ref_ParentSegment REFERENCE,IN Region CHARACTER) 
+	BEGIN
+		DECLARE hl7 NAMESPACE 'urn:hl7-org:v2xml';  --This will be already present in commonHcp
+        DECLARE "charPID:2.1" CHARACTER;
+        
+        SET "charPID:2.1" = ref_ParentSegment.hl7:PID.hl7:"PID.2.PatientID".hl7:"CX.1"; --Store PID 2.1
+		
+		--checking first two characters in PID.2.1
+		IF LEFT("charPID:2.1",2) = 'XX' THEN
+		    IF Region = 'SPN' THEN
+		    	SET "charPID:2.1" = CAST(CAST(TRIM(LEADING 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' FROM "charPID:2.1") AS INTEGER) AS CHARACTER FORMAT '0000000');  --Trim leading alpha characters and format to 7 characters
+			    CALL CommonHCP.Routines.ESQL.SetValue(ref_ParentSegment,'PID\PID.2.PatientID\CX.1','INWSPN'||"charPID:2.1"); 
+		    ELSEIF Region = 'ALTX' THEN
+		    	SET "charPID:2.1" = CAST(CAST(TRIM(LEADING 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' FROM "charPID:2.1") AS INTEGER) AS CHARACTER FORMAT '00000000'); --Trim leading alpha characters and format to 8 characters
+			    CALL CommonHCP.Routines.ESQL.SetValue(ref_ParentSegment,'PID\PID.2.PatientID\CX.1','A'||"charPID:2.1");
+		    ELSEIF Region = 'SRH' THEN
+			    CALL CommonHCP.Routines.ESQL.SetValue(ref_ParentSegment, 'PID\PID.2.PatientID\CX.1', TRIM(LEADING 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' FROM "charPID:2.1" )); --Trim Leading alpha characters
+		    ELSE
+		    	SET "charPID:2.1" = CAST(CAST(TRIM(LEADING 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' FROM "charPID:2.1") AS INTEGER) AS CHARACTER FORMAT '00000000'); --Trim leading alpha characters and format to 8 characters
+			    CALL CommonHCP.Routines.ESQL.SetValue(ref_ParentSegment,'PID\PID.2.PatientID\CX.1',"charPID:2.1");
+		    END IF;
+		END IF;
+	END;
+	
+	/***** End of emrIdConversionNew **********/
+	
+	/* --------------------------------------*/
+CREATE PROCEDURE getDQWebserviceOperations(IN OprList REFERENCE,IN FlowName CHARACTER,INOUT resultOut REFERENCE)
+BEGIN
+	DECLARE ref_recordSegmentloop REFERENCE TO OprList.*[1];
+	DECLARE iCurssor INTEGER 1;
+	DECLARE cFieldName, systemName CHARACTER;
+
+	IF FlowName ='ADM' THEN
+		SET systemName='MT';
+	ELSEIF FlowName = 'ATHENANET' THEN
+		SET systemName='ATHENA';
+	END IF;
+	CREATE LASTCHILD OF resultOut NAME 'Operation';
+
+	WHILE LASTMOVE(ref_recordSegmentloop) DO
+		SET cFieldName = UCASE(FIELDNAME(ref_recordSegmentloop));
+
+		IF CONTAINS(cFieldName,'MARITALSTATUS') OR CONTAINS(cFieldName,'MARITAL_STATUS') THEN
+			SET resultOut.Operation[iCurssor].(XMLNSC.Attribute)Name = 'DQ_MARITAL_STATUS';
+			CREATE LASTCHILD OF resultOut.Operation[iCurssor] NAME 'Request';
+			SET resultOut.Operation[iCurssor].Request.IN_SRC_MARITAL_STATUS_CD=TRIM(ref_recordSegmentloop);
+			SET resultOut.Operation[iCurssor].Request.IN_SRC_SYSTEM_MARITALSTATUS=systemName;
+			SET iCurssor = iCurssor +1;
+		ELSEIF CONTAINS(cFieldName,'SUFFIX')THEN
+			SET resultOut.Operation[iCurssor].(XMLNSC.Attribute)Name = 'DQ_SUFFIX';
+			CREATE LASTCHILD OF resultOut.Operation[iCurssor] NAME 'Request';
+			SET resultOut.Operation[iCurssor].Request.IN_SRC_SUFFIX_CD=TRIM(ref_recordSegmentloop);
+			SET resultOut.Operation[iCurssor].Request.IN_SRC_SYSTEM_SUFFIX=systemName;
+			SET iCurssor = iCurssor +1;
+		ELSEIF CONTAINS(cFieldName,'RACE')THEN
+			SET resultOut.Operation[iCurssor].(XMLNSC.Attribute)Name = 'DQ_RACE';
+			CREATE LASTCHILD OF resultOut.Operation[iCurssor] NAME 'Request';
+			SET resultOut.Operation[iCurssor].Request.IN_SRC_RACE_CD=TRIM(ref_recordSegmentloop);
+			SET resultOut.Operation[iCurssor].Request.IN_SRC_SYSTEM_RACE=systemName;
+			SET iCurssor = iCurssor +1;
+		ELSEIF CONTAINS(cFieldName,'LANGUAGE')THEN
+			SET resultOut.Operation[iCurssor].(XMLNSC.Attribute)Name = 'DQ_LANGUAGE';
+			CREATE LASTCHILD OF resultOut.Operation[iCurssor]NAME 'Request';
+			SET resultOut.Operation[iCurssor].Request.IN_SRC_LANGUAGE_CD=TRIM(ref_recordSegmentloop);
+			SET resultOut.Operation[iCurssor].Request.IN_SRC_SYSTEM_LANGUAGE=systemName;
+			SET iCurssor = iCurssor +1;
+		ELSEIF CONTAINS(cFieldName,'GENDER')THEN
+			SET resultOut.Operation[iCurssor].(XMLNSC.Attribute)Name = 'DQ_GENDER';
+			CREATE LASTCHILD OF resultOut.Operation[iCurssor] NAME 'Request';
+			SET resultOut.Operation[iCurssor].Request.IN_SRC_GENDER_CD=TRIM(ref_recordSegmentloop);
+			SET resultOut.Operation[iCurssor].Request.IN_SRC_SYSTEM_GENDER=systemName;
+			SET iCurssor = iCurssor +1;
+		ELSEIF CONTAINS(cFieldName,'ADDRESSDOCTOR') OR CONTAINS(cFieldName,'ADDRESS_DOCTOR')THEN
+			SET resultOut.Operation[iCurssor].(XMLNSC.Attribute)Name = 'DQ_ADDRESS_DOCTOR';
+			CREATE LASTCHILD OF resultOut.Operation[iCurssor] NAME 'Request';
+			SET resultOut.Operation[iCurssor].Request.IN_SRC_STREET_ADDRESS_1=TRIM(ref_recordSegmentloop);
+			SET resultOut.Operation[iCurssor].Request.IN_SRC_STREET_ADDRESS_2=systemName;
+			SET resultOut.Operation[iCurssor].Request.IN_SRC_CITY=null;
+			SET resultOut.Operation[iCurssor].Request.IN_SRC_STATE=null;
+			SET resultOut.Operation[iCurssor].Request.IN_SRC_POSTAL_CODE=null;
+			SET resultOut.Operation[iCurssor].Request.IN_SRC_COUNTRY=null;
+			SET iCurssor = iCurssor +1;
+		ELSEIF CONTAINS(cFieldName,'ARGOUIDURNCHECK')OR CONTAINS(cFieldName,'ARGO_UID_URN_CHECK')THEN
+			SET resultOut.Operation[iCurssor].(XMLNSC.Attribute)Name = 'DQ_ARGO_UID_URN_CHECK';
+			CREATE LASTCHILD OF resultOut.Operation[iCurssor] NAME 'Request';
+			SET resultOut.Operation[iCurssor].Request.IN_SRC_ARGO_EID=TRIM(ref_recordSegmentloop);
+			SET resultOut.Operation[iCurssor].Request.IN_SRC_URN=systemName;
+			SET iCurssor = iCurssor +1;
+		ELSEIF CONTAINS(cFieldName,'ETHNICITY')THEN
+			SET resultOut.Operation[iCurssor].(XMLNSC.Attribute)Name = 'DQ_ETHNICITY';
+			CREATE LASTCHILD OF resultOut.Operation[iCurssor] NAME 'Request';
+			SET resultOut.Operation[iCurssor].Request.IN_SRC_ETHNICITY_CD=TRIM(ref_recordSegmentloop);
+			SET resultOut.Operation[iCurssor].Request.IN_SRC_SYSTEM_ETHNICITY=systemName;
+			SET iCurssor = iCurssor +1;
+		ELSEIF CONTAINS(cFieldName,'ETHNICITYSUBGROUP') OR CONTAINS(cFieldName,'ETHNICITY_SUBGROUP')THEN
+			SET resultOut.Operation[iCurssor].(XMLNSC.Attribute)Name = 'DQ_ETHNICITY_SUBGROUP';
+			CREATE LASTCHILD OF resultOut.Operation[iCurssor] NAME 'Request';
+			SET resultOut.Operation[iCurssor].Request.IN_SRC_ETHNICITY_SUBGRP_CD=TRIM(ref_recordSegmentloop);
+			SET resultOut.Operation[iCurssor].Request.IN_SRC_SYSTEM_ETHNICITYSUBGRP=systemName;
+			SET iCurssor = iCurssor +1;
+		ELSEIF CONTAINS(cFieldName,'PREFIX')THEN
+			SET resultOut.Operation[iCurssor].(XMLNSC.Attribute)Name = 'DQ_PREFIX';
+			CREATE LASTCHILD OF resultOut.Operation[iCurssor] NAME 'Request';
+			SET resultOut.Operation[iCurssor].Request.IN_SRC_PREFIX_CD=TRIM(ref_recordSegmentloop);
+			SET resultOut.Operation[iCurssor].Request.IN_SRC_SYSTEM_PREFIX=systemName;
+			SET iCurssor = iCurssor +1;
+		ELSEIF CONTAINS(cFieldName,'RELIGION')THEN
+			SET resultOut.Operation[iCurssor].(XMLNSC.Attribute)Name = 'DQ_RELIGION';
+			CREATE LASTCHILD OF resultOut.Operation[iCurssor] NAME 'Request';
+			SET resultOut.Operation[iCurssor].Request.IN_SRC_RELIGION_CD=TRIM(ref_recordSegmentloop);
+			SET resultOut.Operation[iCurssor].Request.IN_SRC_SYSTEM_RELIGION=systemName;
+			SET iCurssor = iCurssor +1;
+		ELSEIF CONTAINS(cFieldName,'TITLE')THEN
+			SET resultOut.Operation[iCurssor].(XMLNSC.Attribute)Name = 'DQ_TITLE';
+			CREATE LASTCHILD OF resultOut.Operation[iCurssor] NAME 'Request';
+			SET resultOut.Operation[iCurssor].Request.IN_SRC_TITLE_CD=TRIM(ref_recordSegmentloop);
+			SET resultOut.Operation[iCurssor].Request.IN_SRC_SYSTEM_TITLE=systemName;
+			SET iCurssor = iCurssor +1;
+		END IF;
+
+		MOVE ref_recordSegmentloop NEXTSIBLING;
+	END WHILE;
+END;
+--------------------------------------------------------------------------------------
+
+CREATE PROCEDURE getHl7DQOperations(IN ref_DFDLHL7Segment REFERENCE,IN FlowName CHARACTER,INOUT refOprList REFERENCE)BEGIN
+DECLARE i INTEGER 0;
+DECLARE systemName CHARACTER;
+DECLARE ref_anyHL7Segment REFERENCE TO ref_DFDLHL7Segment.hl7:anyHL7Segment;
+IF FlowName ='ADM' THEN
+	SET systemName='MT';
+ELSEIF FlowName = 'ATHENANET' THEN
+	SET systemName='ATHENA';
+END IF;
+
+WHILE LASTMOVE(ref_anyHL7Segment) DO
+	CASE FIELDNAME(ref_anyHL7Segment.[1])
+	WHEN 'PID' THEN
+		IF ref_anyHL7Segment.hl7:PID.hl7:"PID.5.PatientName".hl7:"XPN.5" IS NOT NULL THEN
+			CREATE LASTCHILD OF refOprList Name 'Suffix';
+			SET refOprList.Suffix=ref_anyHL7Segment.hl7:PID.hl7:"PID.5.PatientName".hl7:"XPN.4";
+		END IF;
+		IF ref_anyHL7Segment.hl7:PID.hl7:"PID.5.PatientName".hl7:"XPN.6" IS NOT NULL THEN
+			CREATE LASTCHILD OF refOprList Name 'Prefix';
+			SET refOprList.Prefix=ref_anyHL7Segment.hl7:PID.hl7:"PID.5.PatientName".hl7:"XPN.5";
+		END IF;
+		IF ref_anyHL7Segment.hl7:PID.hl7:"PID.5.PatientName".hl7:"XPN.7" IS NOT NULL THEN
+			CREATE LASTCHILD OF refOprList Name 'Title';
+			SET refOprList.Title=ref_anyHL7Segment.hl7:PID.hl7:"PID.5.PatientName".hl7:"XPN.6";
+		END IF;
+		IF ref_anyHL7Segment.hl7:PID.hl7:"PID.8.AdministrativeSex".hl7:"CWE.1" IS NOT NULL THEN
+			CREATE LASTCHILD OF refOprList Name 'Gender';
+			SET refOprList.Gender=ref_anyHL7Segment.hl7:PID.hl7:"PID.8.AdministrativeSex".hl7:"CWE.1";
+		END IF;
+		IF ref_anyHL7Segment.hl7:PID.hl7:"PID.10.Race".hl7:"CWE.1" IS NOT NULL THEN
+			CREATE LASTCHILD OF refOprList Name 'Race';
+			SET refOprList.Race=ref_anyHL7Segment.hl7:PID.hl7:"PID.10.Race".hl7:"CWE.1";
+		END IF;
+		IF systemName = 'ATHENA' AND ref_anyHL7Segment.hl7:PID.hl7:"PID.15.PrimaryLanguage".hl7:"CWE.1" IS NOT NULL THEN
+			CREATE LASTCHILD OF refOprList Name 'Language';
+			SET refOprList.Language=ref_anyHL7Segment.hl7:PID.hl7:"PID.15.PrimaryLanguage".hl7:"CWE.1";
+		END IF;
+		IF ref_anyHL7Segment.hl7:PID.hl7:"PID.16.MaritalStatus".hl7:"CWE.1" IS NOT NULL THEN
+			CREATE LASTCHILD OF refOprList Name 'MaritalStatus';
+			SET refOprList.MaritalStatus=ref_anyHL7Segment.hl7:PID.hl7:"PID.16.MaritalStatus".hl7:"CWE.1";
+		END IF;
+		IF ref_anyHL7Segment.hl7:PID.hl7:"PID.17.Religion".hl7:"CWE.1" IS NOT NULL THEN
+			CREATE LASTCHILD OF refOprList Name 'Religion';
+			SET refOprList.Religion=ref_anyHL7Segment.hl7:PID.hl7:"PID.17.Religion".hl7:"CWE.1";
+		END IF;
+		IF systemName = 'ATHENA' AND CARDINALITY(ref_anyHL7Segment.hl7:PID.hl7:"PID.22.EthnicGroup"[]) > 0 THEN
+			DECLARE refEthnicGroup REFERENCE TO ref_anyHL7Segment.hl7:PID.hl7:"PID.22.EthnicGroup";
+			WHILE LASTMOVE(refEthnicGroup) DO
+				SET i = i +1;
+				CREATE LASTCHILD OF refOprList Name 'Ethnicity';
+				SET refOprList.Ethnicity[i] = COALESCE(refEthnicGroup.hl7:"CWE.1",'');
+				MOVE refEthnicGroup NEXTSIBLING;
+			END WHILE;
+		END IF;
+
+	WHEN 'OBX' THEN
+		IF systemName = 'MT' AND ((ref_anyHL7Segment.hl7:OBX.hl7:"OBX.3.ObservationIdentifier".hl7:"CWE.1" = 'ADM.LANG2') OR
+			(ref_anyHL7Segment.hl7:OBX.hl7:"OBX.3.ObservationIdentifier".hl7:"CWE.1" = 'ADM.LANG3') OR
+			(ref_anyHL7Segment.hl7:OBX.hl7:"OBX.3.ObservationIdentifier".hl7:"CWE.1" = 'ADM.LANGW')) THEN
+			IF NOT EXISTS(refOprList.Language[]) THEN
+				SET i = 1;
+				CREATE LASTCHILD OF refOprList Name 'Language';
+				SET refOprList.Language[i]= SUBSTRING(ref_anyHL7Segment.hl7:OBX.hl7:"OBX.5.ObservationValue" BEFORE '^');
+			ELSE
+				SET i = i+1;
+				CREATE LASTCHILD OF refOprList Name 'Language';
+				SET refOprList.Language[i]= SUBSTRING(ref_anyHL7Segment.hl7:OBX.hl7:"OBX.5.ObservationValue" BEFORE '^');
+			END IF;
+		ELSEIF systemName = 'MT' AND (ref_anyHL7Segment.hl7:OBX.hl7:"OBX.3.ObservationIdentifier".hl7:"CWE.1" = 'ADM.ETHNIC')THEN
+			IF NOT EXISTS(refOprList.Ethnicity[])THEN
+				SET i = 1;
+				CREATE LASTCHILD OF refOprList Name 'Ethnicity';
+				SET refOprList.Ethnicity[i]= ref_anyHL7Segment.hl7:OBX.hl7:"OBX.3.ObservationIdentifier".hl7:"CWE.3";
+			ELSE
+				SET i = i+1;
+				CREATE LASTCHILD OF refOprList Name 'Ethnicity';
+				SET refOprList.Ethnicity[i]= ref_anyHL7Segment.hl7:OBX.hl7:"OBX.3.ObservationIdentifier".hl7:"CWE.3";
+			END IF;
+		END IF;
+	END CASE;
+	MOVE ref_anyHL7Segment NEXTSIBLING;
+END WHILE;
+
+END;
+-----------------------------------------------------------------
+
+CREATE PROCEDURE setDQResponseValues(IN refINResponses REFERENCE,IN sourceApplication CHARACTER,IN newSegment REFERENCE,IN ObsvrID CHARACTER,IN inputSegment CHARACTER)
+BEGIN
+	DECLARE refResponses REFERENCE TO refINResponses.Operation;
+	DECLARE sourceSystem CHARACTER;
+	IF sourceApplication ='ADM' THEN
+		SET sourceSystem='MT';
+	ELSEIF sourceApplication = 'ATHENANET' THEN
+		SET sourceSystem='ATHENA';
+	END IF;
+	DECLARE cGender,clanguage,cmaritalstatus,csuffix,crace,caddrdoctor,cargocheck,cethnicity,cethnicitysubgrp,cprefix,creligion,ctitle CHARACTER;
+	WHILE LASTMOVE(refResponses) DO
+
+		IF (refResponses.*:Response.FaultCode IS NOT NULL OR refResponses.*:Response.FaultCode <> ' ') OR
+			(refResponses.*:Response.FailureCode IS NOT NULL OR refResponses.*:Response.FailureCode <> ' ') THEN
+		
+		ELSE
+
+		IF inputSegment='PID' THEN
+
+			IF refResponses.Name = 'DQ_GENDER' THEN
+				SET cGender = CAST(refResponses.Response.CH_GENDER_CD as CHARACTER);
+				CALL CommonHCP.Routines.ESQL.SetValue(newSegment, 'PID\PID.8.AdministrativeSex\CWE.1',cGender);
+			END IF;
+			IF refResponses.Name ='DQ_MARITAL_STATUS' THEN
+				SET cmaritalstatus = CAST(refResponses.*:Response.CH_MARITAL_STATUS_CD as CHARACTER);
+				CALL CommonHCP.Routines.ESQL.SetValue(newSegment, 'PID\PID.16.MaritalStatus\CWE.1',cmaritalstatus);
+			END IF;
+			IF refResponses.Name ='DQ_SUFFIX' THEN
+				SET csuffix = CAST(refResponses.*:Response.CH_SUFFIX_CD as CHARACTER);
+				CALL CommonHCP.Routines.ESQL.SetValue(newSegment, 'PID\PID.5.PatientName\XPN.4',csuffix);
+			END IF;
+			IF refResponses.Name ='DQ_RACE' THEN
+				SET crace = CAST(refResponses.*:Response.CH_RELIGION_CD as CHARACTER);
+				CALL CommonHCP.Routines.ESQL.SetValue(newSegment, 'PID\PID.10.Race\CWE.1',crace);
+			END IF;
+			-- IF refResponses.Name ='DQ_ADDRESS_DOCTOR' THEN
+			-- SET caddrdoctor = CAST(refResponses.*:Response.DeliveryAddressLine1 as CHARACTER);
+			-- CALL CommonHCP.Routines.ESQL.SetValue(newSegment, 'OBX\OBX.5.ObservationValue',caddrdoctor);
+			--END IF;
+			-- IF refResponses.Name ='DQ_ARGO_UID_URN_CHECK' THEN
+			-- SET cargocheck = CAST(refResponses.*:Response.DQ_SCORE_IND_AGROEID as CHARACTER);
+			-- CALL CommonHCP.Routines.ESQL.SetValue(newSegment, 'OBX\OBX.5.ObservationValue',cargocheck);
+			-- END IF;
+			--IF refResponses.Name ='DQ_ETHNICITY_SUBGROUP' THEN
+			-- SET cethnicitysubgrp = CAST(refResponses.*:Response.CH_ETHNICITY_SUBGRP_CD as CHARACTER);
+			-- CALL CommonHCP.Routines.ESQL.SetValue(newSegment, 'OBX\OBX.5.ObservationValue',cethnicitysubgrp);
+			--END IF;
+			IF refResponses.Name ='DQ_PREFIX' THEN
+				SET cprefix = CAST(refResponses.*:Response.CH_PREFIX_CD as CHARACTER);
+				CALL CommonHCP.Routines.ESQL.SetValue(newSegment, 'PID\PID.5.PatientName\XPN.5',cprefix);
+			END IF;
+			IF refResponses.Name ='DQ_RELIGION' THEN
+				SET creligion = CAST(refResponses.*:Response.CH_RELIGION_CD as CHARACTER);
+				CALL CommonHCP.Routines.ESQL.SetValue(newSegment, 'PID\PID.17.Religion\CWE.1',creligion);
+			END IF;
+			IF refResponses.Name ='DQ_TITLE' THEN
+				SET ctitle = CAST(refResponses.*:Response.CH_TITLE_CD as CHARACTER);
+				CALL CommonHCP.Routines.ESQL.SetValue(newSegment, 'PID\PID.5.PatientName\XPN.6',ctitle);
+			END IF;
+			IF refResponses.Name ='DQ_LANGUAGE' AND sourceSystem= 'ATHENA' AND inputSegment='PID' THEN
+				SET clanguage = CAST(refResponses.*:Response.CH_LANGUAGE_CD as CHARACTER);
+				CALL CommonHCP.Routines.ESQL.SetValue(newSegment, 'PID\PID.15.PrimaryLanguage\CWE.1',clanguage);
+			END IF;
+			IF refResponses.Name ='DQ_ETHNICITY' AND sourceSystem= 'ATHENA' AND inputSegment='PID' THEN
+				SET cethnicity = CAST(refResponses.*:Response.CH_ETHNICITY_CD as CHARACTER);
+				CALL CommonHCP.Routines.ESQL.SetValue(newSegment, 'PID\PID.22.EthnicGroup\CWE.1',cethnicity);
+			END IF;
+		ELSEIF inputSegment='OBX' THEN
+			IF refResponses.Name ='DQ_LANGUAGE' AND sourceSystem= 'MT' AND inputSegment='OBX'
+				AND (ObsvrID = 'ADM.LANG2' or ObsvrID ='ADM.LANG3' OR ObsvrID ='ADM.LANGW')THEN
+				DECLARE clanguageID, clanguageDes CHARACTER;
+				SET clanguageID = CAST(refResponses.*:Response.CH_LANGUAGE_CD as CHARACTER);
+				SET clanguageDes = CAST(refResponses.*:Response.CH_LANGUAGE_DESC as CHARACTER);
+				SET clanguage = clanguageID||'^'||clanguageDes;
+				CALL CommonHCP.Routines.ESQL.SetValue(newSegment, 'OBX\OBX.5.ObservationValue',clanguage);
+			END IF;
+			IF refResponses.Name ='DQ_ETHNICITY' AND sourceSystem= 'MT' AND inputSegment='OBX' AND ObsvrID = 'ADM.ETHNIC' THEN
+				SET cethnicity = CAST(refResponses.*:Response.CH_ETHNICITY_CD as CHARACTER);
+				CALL CommonHCP.Routines.ESQL.SetValue(newSegment, 'OBX\OBX.3.ObservationIdentifier\CWE.3',cethnicity);
+			END IF;
+		END IF;
+		END IF;
+		MOVE refResponses NEXTSIBLING;
+	END WHILE;
+END;
+	
+	
+	
+	
+	
+	
+	
+	

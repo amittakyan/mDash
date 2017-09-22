@@ -1,0 +1,391 @@
+BROKER SCHEMA HL7DFDL
+
+
+DECLARE ReceiverMessageSet CONSTANT CHARACTER 'HL7v27DFDL';
+DECLARE ReceiverMessageType CONSTANT CHARACTER '{urn:hl7-org:v2xml}:HL7';
+DECLARE HL7 NAMESPACE 'urn:hl7-org:v2xml';
+DECLARE ReceiverMessageFormat CONSTANT CHARACTER '';
+
+DECLARE Retries EXTERNAL INTEGER 5;
+DECLARE DelayBetweenTotTries EXTERNAL INTEGER 10;
+DECLARE TimeoutSendingData EXTERNAL INTEGER 10;
+DECLARE TimeoutWaitingForData EXTERNAL INTEGER 10;
+DECLARE Treat_AR_as_ACK EXTERNAL BOOLEAN FALSE;
+DECLARE Treat_AE_as_ACK EXTERNAL BOOLEAN FALSE;
+DECLARE Treat_Invalid_Reply_as_ACK EXTERNAL BOOLEAN FALSE;
+DECLARE Match_Control_IDs EXTERNAL BOOLEAN FALSE;
+DECLARE MaxACKtoSkip EXTERNAL INTEGER 10;
+DECLARE Require_Reply EXTERNAL BOOLEAN TRUE;
+DECLARE Ignore_Reply EXTERNAL BOOLEAN FALSE;
+
+DECLARE TotTries INTEGER;
+
+CREATE COMPUTE MODULE HL7DFDLSender
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN
+		-- CALL CopyMessageHeaders();
+		-- CALL CopyEntireMessage();
+		
+		SET Environment.MsgID = InputRoot.MQRFH2.usr.uniqueMessageId;
+		SET Environment.Variables.SrcControlID = InputRoot.MQRFH2.usr.MessageControlID;
+		
+		SET TotTries = Retries + 1;
+		
+		DECLARE hl7BitStream BLOB ASBITSTREAM(InputRoot.DFDL
+                CCSID InputRoot.Properties.CodedCharSetId
+                ENCODING InputRoot.Properties.Encoding
+                SET ReceiverMessageSet
+                TYPE ReceiverMessageType
+                FORMAT ReceiverMessageFormat);
+                
+		DECLARE LeadingMLLPBytes BLOB X'0B';
+		DECLARE TrailingMLLPBytes BLOB X'1C0D';
+		
+		DECLARE Try INTEGER 0;
+		
+        DECLARE hl7Msg BLOB LeadingMLLPBytes||hl7BitStream||TrailingMLLPBytes;
+        
+        DECLARE Success BOOLEAN FALSE;
+        DECLARE bWouldRetry BOOLEAN FALSE;
+        WHILE(Try < TotTries AND NOT Success) DO        
+        
+        	IF (Try > 0) THEN
+        		DECLARE EXIT HANDLER FOR SQLSTATE LIKE '%'
+        		BEGIN
+        		END;
+				PROPAGATE TO TERMINAL 'out4' DELETE NONE;  --Close the connection 
+        	END IF;
+        	
+        	SET OutputLocalEnvironment.Destination.TCPIP.Output.Timeout = TimeoutSendingData;
+        	
+        	SET Success = TRUE;
+        	SET bWouldRetry = FALSE;
+        	BEGIN
+	        	DECLARE CONTINUE HANDLER FOR SQLSTATE LIKE '%'
+				BEGIN
+					SET Success = FALSE;
+					SET Try = Try + 1;
+		        	IF(Try < TotTries AND NOT SLEEP(DelayBetweenTotTries*1000)) THEN
+						SET Try = TotTries + 1;
+					END IF;
+				END;
+				SET OutputRoot.BLOB.BLOB = hl7Msg;
+				PROPAGATE TO TERMINAL 'out';
+				IF (Success AND Environment.Outcome = 'NACK' AND Try < TotTries-1) THEN
+					
+	        		DECLARE EXIT HANDLER FOR SQLSTATE LIKE '%'
+	        		BEGIN
+	        		END;
+					PROPAGATE TO TERMINAL 'out4' DELETE NONE;  --Close the connection
+					 
+					DECLARE s BOOLEAN SLEEP(DelayBetweenTotTries*1000);
+					SET Success = FALSE;
+					SET Try = Try + 1;
+					SET bWouldRetry = TRUE;
+	        	END IF;
+        	END;
+        	
+        	
+        	IF (INSTANCESTOPPING() AND bWouldRetry) THEN  --Only get out if the instance is stopping, AND it would have retried.
+        		SET Success = FALSE;
+        		SET Try = TotTries;
+        		BEGIN        			
+        			SET Environment.Variables.RollbackReason = 'Transaction Rollback - Instance stopping';
+        			SET Environment.Exception.UserException.Number = 0;
+        			SET Environment.Exception.UserException.Text = 'User generated exception';
+        			SET Environment.Exception.UserException.Insert.Text = 'Intance of ' || MessageFlowLabel || ' is stopping';
+				END;
+        	END IF;
+		END WHILE;
+        
+        IF (Success AND Environment.Outcome = 'ACK') THEN
+        	CALL CopyMessageHeaders();
+        	SET OutputRoot.MQRFH2.usr.uniqueMessageId = Environment.MsgID;
+        	IF (Environment.Variables.ParseStatus = 'failed') THEN
+        		SET OutputRoot.BLOB.BLOB = Environment.Variables.RawReply;
+        	ELSE
+        		
+	        	IF (CARDINALITY(Environment.DFDL[])> 0) THEN
+					SET OutputRoot.DFDL = Environment.DFDL;
+	        	ELSE        		
+					SET OutputRoot.BLOB.BLOB = Environment.Variables.RawReply;
+	        	END IF;
+        	END IF;
+			PROPAGATE TO TERMINAL 'out2';
+        ELSEIF(Success AND Environment.Outcome = 'NACK') THEN
+        	CALL CopyMessageHeaders();
+        	SET OutputRoot.MQRFH2.usr.uniqueMessageId = Environment.MsgID;
+
+
+        	IF (CARDINALITY(Environment.DFDL[])> 0) THEN
+				SET OutputRoot.DFDL = Environment.DFDL;
+        	ELSE        		
+				SET OutputRoot.BLOB.BLOB = Environment.Variables.RawReply;
+        	END IF;
+        	
+			SET Environment.FailedMessage = hl7BitStream;
+        	SET Environment.Variables.RollbackReason = 'Transaction Rollback - NACK';
+        	BEGIN  
+        		DECLARE EXIT HANDLER FOR SQLSTATE LIKE '%'
+        		BEGIN
+        		END;
+				PROPAGATE TO TERMINAL 'out4' DELETE NONE;  --Close the connection 
+        	END;
+			PROPAGATE TO TERMINAL 'out1';
+        ELSEIF(Success) THEN
+        	CALL CopyMessageHeaders();
+        	SET OutputRoot.MQRFH2.usr.uniqueMessageId = Environment.MsgID;
+        	IF (CARDINALITY(Environment.DFDL[])> 0) THEN
+				SET OutputRoot.DFDL = Environment.DFDL;
+        	ELSE        		
+				SET OutputRoot.BLOB.BLOB = Environment.Variables.RawReply;
+        	END IF;
+        	SET Environment.Variables.RollbackReason = COALESCE(Environment.Variables.RollbackReason, 'Transaction Rollback - Other issue');
+        	
+        	BEGIN  
+        		DECLARE EXIT HANDLER FOR SQLSTATE LIKE '%'
+        		BEGIN
+        		END;
+				PROPAGATE TO TERMINAL 'out4' DELETE NONE;  --Close the connection 
+        	END;
+			PROPAGATE TO TERMINAL 'out3';
+		ELSE
+			IF (Environment.Variables.RawReply IS NOT NULL) THEN
+				CALL CopyMessageHeaders();
+				
+				IF FIELDTYPE(OutputRoot.MQMD) IS NULL THEN
+				 	CREATE NEXTSIBLING OF OutputRoot.Properties DOMAIN 'MQMD';
+				 	SET OutputRoot.MQMD.CodedCharSetId = OutputRoot.Properties.CodedCharSetId;
+				 	SET OutputRoot.MQMD.Encoding = OutputRoot.Properties.Encoding;
+		        END IF;
+		        
+		   		IF FIELDTYPE(OutputRoot.MQRFH2) IS NULL THEN
+		     	  CREATE NEXTSIBLING OF OutputRoot.MQMD DOMAIN 'MQRFH2';	
+				END IF;	
+				
+		    	SET OutputRoot.MQRFH2.usr.uniqueMessageId = Environment.MsgID;
+				SET OutputRoot.BLOB.BLOB = Environment.Variables.RawReply;
+			ELSE
+				CALL CopyEntireMessage();
+			END IF; 
+			SET OutputExceptionList = Environment.Exception;
+			DECLARE iMessageNumber INTEGER 0;
+			DECLARE cMessageText CHARACTER ' ';
+			DECLARE cNodeLabel CHARACTER '';
+			CALL CommonHCP.Routines.ESQL.GetLastExceptionDetail(OutputExceptionList, iMessageNumber, cMessageText, cNodeLabel);
+			-- cMessageText does not have COALESCE around it on purpose; if it is NULL, the first part will be null
+        	SET Environment.Variables.RollbackReason = LEFT(COALESCE('Transaction Rollback - ' || cMessageText, Environment.Variables.RollbackReason, 'Transaction Rollback - Other issue'), 100);
+        	
+        	BEGIN  
+        		DECLARE EXIT HANDLER FOR SQLSTATE LIKE '%'
+        		BEGIN
+        		END;
+				PROPAGATE TO TERMINAL 'out4' DELETE NONE;  --Close the connection 
+        	END;
+			PROPAGATE TO TERMINAL 'out3';
+		END IF;
+        
+		RETURN FALSE;
+	END;
+
+	CREATE PROCEDURE CopyMessageHeaders() BEGIN
+		DECLARE I INTEGER 1;
+		DECLARE J INTEGER;
+		SET J = CARDINALITY(InputRoot.*[]);
+		WHILE I < J DO
+			SET OutputRoot.*[I] = InputRoot.*[I];
+			SET I = I + 1;
+		END WHILE;
+	END;
+
+	CREATE PROCEDURE CopyEntireMessage() BEGIN
+		SET OutputRoot = InputRoot;
+	END;
+END MODULE;
+
+
+CREATE COMPUTE MODULE HL7DFDLSender_HandleReply
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN
+		CALL CopyMessageHeaders();
+		-- CALL CopyEntireMessage();
+		SET OutputRoot.BLOB.BLOB = SUBSTRING(InputRoot.BLOB.BLOB FROM 2 FOR LENGTH(InputRoot.BLOB.BLOB) - 2);
+		SET Environment.Variables.RawReply = OutputRoot.BLOB.BLOB;
+		
+		RETURN TRUE;
+	END;
+
+	CREATE PROCEDURE CopyMessageHeaders() BEGIN
+		DECLARE I INTEGER 1;
+		DECLARE J INTEGER;
+		SET J = CARDINALITY(InputRoot.*[]);
+		WHILE I < J DO
+			SET OutputRoot.*[I] = InputRoot.*[I];
+			SET I = I + 1;
+		END WHILE;
+	END;
+
+	CREATE PROCEDURE CopyEntireMessage() BEGIN
+		SET OutputRoot = InputRoot;
+	END;
+END MODULE;
+
+
+CREATE COMPUTE MODULE HL7DFDLSender_HandleException
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN
+		-- CALL CopyMessageHeaders();
+		-- CALL CopyEntireMessage();
+		
+		IF (Environment.Variables.RawReply IS NOT NULL AND Treat_Invalid_Reply_as_ACK) THEN
+			SET Environment.Outcome = 'ACK';
+			SET Environment.ACK_Reason = 'Treat Invalid reply as ACK';
+		ELSEIF (Ignore_Reply) THEN
+			SET Environment.Outcome = 'ACK';
+			SET Environment.ACK_Reason = 'Ignore Reply';
+		ELSE
+			SET Environment.Exception = InputExceptionList;
+			--PROPAGATE TO TERMINAL 'out' EXCEPTION InputExceptionList;
+			THROW USER EXCEPTION;
+		END IF;
+	END;
+END MODULE;
+
+
+
+CREATE COMPUTE MODULE HL7DFDLSender_PrepForReply
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN
+		-- CALL CopyMessageHeaders();
+		-- CALL CopyEntireMessage();
+		
+		
+		DECLARE host CHARACTER InputLocalEnvironment.WrittenDestination.TCPIP.Output.ConnectionDetails.Hostname;
+		DECLARE port INTEGER InputLocalEnvironment.WrittenDestination.TCPIP.Output.ConnectionDetails.Port;
+		DECLARE tcp_id CHARACTER InputLocalEnvironment.WrittenDestination.TCPIP.Output.ConnectionDetails.Id;
+		
+		SET Environment.SentTo.host = host;
+		SET Environment.SentTo.port = port;
+		
+		IF (Ignore_Reply AND NOT Require_Reply) THEN
+			SET Environment.ACK_Reason = 'Ignore Reply';
+			SET Environment.Outcome = 'ACK';
+			RETURN FALSE;
+		END IF;
+			
+		
+		DECLARE skippedControlIDs INTEGER MaxACKtoSkip;  --Note the if MaxACKtoSkip is negative, it can create an infinate loop 
+		
+		Reply: LOOP --This loop only handles the rechecking of the reply
+			
+        	
+			SET OutputLocalEnvironment.TCPIP.Receive.Hostname = host;
+			SET OutputLocalEnvironment.TCPIP.Receive.Port = port;
+			SET OutputLocalEnvironment.TCPIP.Receive.Id = tcp_id;
+			SET OutputLocalEnvironment.TCPIP.Receive.Timeout = TimeoutWaitingForData;
+			
+			PROPAGATE TO TERMINAL 'out' DELETE NONE;
+			
+			IF (Ignore_Reply) THEN
+				LEAVE Reply;
+			ELSEIF (NOT Match_Control_IDs) THEN
+				LEAVE Reply;
+			ELSEIF (Environment.Variables.SrcControlID = Environment.Variables.ReplyControlID) THEN
+				LEAVE Reply;
+			ELSEIF (skippedControlIDs = 0) THEN
+				LEAVE Reply;
+			ELSEIF (skippedControlIDs > 0) THEN
+				SET skippedControlIDs = skippedControlIDs - 1;
+			END IF;
+			
+        	IF (INSTANCESTOPPING()) THEN
+        		LEAVE Reply;
+        	END IF;
+        	
+		END LOOP Reply;
+		
+		RETURN FALSE;
+	END;
+
+END MODULE;
+
+
+CREATE COMPUTE MODULE HL7DFDLSender_Handle_ACK_NACK
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN
+		--CALL CopyMessageHeaders();
+		CALL CopyEntireMessage();
+		
+		BEGIN
+			DECLARE EXIT HANDLER FOR SQLSTATE LIKE '%'
+			BEGIN
+				IF (Treat_Invalid_Reply_as_ACK OR Ignore_Reply) THEN
+					SET Environment.Outcome = 'ACK';
+				ELSE
+					SET Environment.Outcome = 'Invalid Reply';
+				END IF;
+				SET Environment.Variables.ParseStatus = 'failed';
+				RETURN FALSE;
+			END; 			
+			SET Environment.Variables.ParseStatus = 'success';
+			SET Environment.DFDL = InputRoot.DFDL;
+		END;
+		
+		SET Environment.Variables.ReplyControlID = InputRoot.DFDL.HL7:HL7.HL7:anyHL7Segment[1].HL7:MSA.HL7:"MSA.2.MessageControlID";
+		
+		IF (Ignore_Reply) THEN
+			SET Environment.Outcome = 'ACK';
+		ELSEIF(InputRoot.DFDL.HL7:HL7.HL7:anyHL7Segment[1].HL7:MSA.HL7:"MSA.1.AcknowledgementCode" IS NULL) THEN
+			SET Environment.Outcome = 'Missing MSA';
+		ELSEIF(InputRoot.DFDL.HL7:HL7.HL7:anyHL7Segment[1].HL7:MSA.HL7:"MSA.1.AcknowledgementCode" = 'AA') THEN
+			SET Environment.Outcome = 'ACK';
+			SET Environment.ACK_Reason = 'ACK was AA';
+		ELSEIF(InputRoot.DFDL.HL7:HL7.HL7:anyHL7Segment[1].HL7:MSA.HL7:"MSA.1.AcknowledgementCode" = 'CA') THEN
+			SET Environment.Outcome = 'ACK';
+			SET Environment.ACK_Reason = 'ACK was AR';
+		ELSEIF(InputRoot.DFDL.HL7:HL7.HL7:anyHL7Segment[1].HL7:MSA.HL7:"MSA.1.AcknowledgementCode" = 'AE' AND Treat_AE_as_ACK) THEN
+			SET Environment.Outcome = 'ACK';
+			SET Environment.ACK_Reason = 'Treat AE as ACK';
+		ELSEIF(InputRoot.DFDL.HL7:HL7.HL7:anyHL7Segment[1].HL7:MSA.HL7:"MSA.1.AcknowledgementCode" = 'AR' AND Treat_AR_as_ACK) THEN
+			SET Environment.Outcome = 'ACK';			
+			SET Environment.ACK_Reason = 'Treat AR as ACK';
+		ELSE
+			SET Environment.Outcome = 'NACK';
+			SET Environment.ACK_Reason = 'NACK';
+		END IF;
+		RETURN FALSE;
+	END;
+
+	CREATE PROCEDURE CopyMessageHeaders() BEGIN
+		DECLARE I INTEGER 1;
+		DECLARE J INTEGER;
+		SET J = CARDINALITY(InputRoot.*[]);
+		WHILE I < J DO
+			SET OutputRoot.*[I] = InputRoot.*[I];
+			SET I = I + 1;
+		END WHILE;
+	END;
+
+	CREATE PROCEDURE CopyEntireMessage() BEGIN
+		SET OutputRoot = InputRoot;
+	END;
+END MODULE;
+
+
+CREATE COMPUTE MODULE HL7DFDLSender_NoReplyHandler
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN
+		
+		IF (Require_Reply) THEN
+			
+			SET Environment.Exception = InputExceptionList;
+			--PROPAGATE TO TERMINAL 'out' EXCEPTION InputExceptionList;
+			THROW USER EXCEPTION;
+		END IF;
+		
+		SET Environment.Outcome = 'ACK';
+		
+		RETURN TRUE;
+	END;
+
+END MODULE;
